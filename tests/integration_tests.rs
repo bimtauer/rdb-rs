@@ -15,6 +15,7 @@ use testcontainers::ContainerAsync;
 use testcontainers_modules::{
     redis::Redis, testcontainers::runners::AsyncRunner, testcontainers::ImageExt,
 };
+use std::os::unix::fs::PermissionsExt;
 
 fn run_dump_test(input: PathBuf, format: &str) -> String {
     let file_stem = input
@@ -89,12 +90,17 @@ async fn redis_client(
     minor_version: u8,
 ) -> (Client, TempDir, ContainerAsync<Redis>) {
     let tmp_dir = tempdir().unwrap();
+    
+    std::fs::set_permissions(tmp_dir.path(), std::fs::Permissions::from_mode(0o777))
+        .expect("Failed to set permissions on temp directory");
+
     let container = Redis::default()
         .with_tag(format!("{}.{}-alpine", major_version, minor_version))
         .with_mount(Mount::bind_mount(
             tmp_dir.path().display().to_string(),
             "/data",
         ))
+        .with_env_var("USER", "1000:1000")
         .start()
         .await
         .expect("Failed to start Redis container");
