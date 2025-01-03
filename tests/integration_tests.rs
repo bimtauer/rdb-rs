@@ -10,12 +10,12 @@ use std::path::Path;
 use std::path::PathBuf;
 use tempfile::tempdir;
 use tempfile::TempDir;
+use testcontainers::core::ExecCommand;
 use testcontainers::core::Mount;
 use testcontainers::ContainerAsync;
 use testcontainers_modules::{
     redis::Redis, testcontainers::runners::AsyncRunner, testcontainers::ImageExt,
 };
-use std::os::unix::fs::MetadataExt;
 
 fn run_dump_test(input: PathBuf, format: &str) -> String {
     let file_stem = input
@@ -136,8 +136,6 @@ async fn execute_commands(conn: &mut redis::Connection, commands: &[(&str, Vec<&
 }
 
 fn parse_rdb_to_resp(rdb_path: &Path) -> String {
-    let metadata = rdb_path.metadata().unwrap();
-    println!("File owner: {:?}, permissions: {:?}", metadata.uid(), metadata.mode());
     let rdb_file = File::open(rdb_path).unwrap();
     let rdb_reader = BufReader::new(rdb_file);
     let tmp_file = tempfile::NamedTempFile::new().unwrap();
@@ -177,7 +175,7 @@ fn split_resp_commands(resp: &str) -> Vec<String> {
 #[case::redis_7_4(7, 4)]
 #[tokio::test]
 async fn test_redis_protocol_reproducibility(#[case] major_version: u8, #[case] minor_version: u8) {
-    let (client, tmp_dir, _container) = redis_client(major_version, minor_version).await;
+    let (client, tmp_dir, container) = redis_client(major_version, minor_version).await;
     let mut conn = client.get_connection().unwrap();
 
     let commands = vec![
@@ -205,6 +203,10 @@ async fn test_redis_protocol_reproducibility(#[case] major_version: u8, #[case] 
     redis::cmd("SAVE").exec(&mut conn).unwrap();
 
     let rdb_file = Path::new(&tmp_dir.path()).join("dump.rdb");
+    container
+        .exec(ExecCommand::new(["chmod", "644", "/data/dump.rdb"]))
+        .await
+        .unwrap();
     let actual_resp = parse_rdb_to_resp(&rdb_file);
 
     // Compare commands as unordered sets
