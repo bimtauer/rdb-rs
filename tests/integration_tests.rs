@@ -16,6 +16,8 @@ use testcontainers::ContainerAsync;
 use testcontainers_modules::{
     redis::Redis, testcontainers::runners::AsyncRunner, testcontainers::ImageExt,
 };
+use std::os::unix::fs::MetadataExt;
+
 
 fn run_dump_test(input: PathBuf, format: &str) -> String {
     let file_stem = input
@@ -168,6 +170,12 @@ fn split_resp_commands(resp: &str) -> Vec<String> {
     commands
 }
 
+#[link(name = "c")]
+unsafe extern "C" {
+    unsafe fn geteuid() -> u32;
+    unsafe fn getegid() -> u32;
+}
+
 #[rstest]
 #[case::redis_6_2(6, 2)]
 #[case::redis_7_0(7, 0)]
@@ -207,6 +215,17 @@ async fn test_redis_protocol_reproducibility(#[case] major_version: u8, #[case] 
         .exec(ExecCommand::new(["chmod", "644", "/data/dump.rdb"]))
         .await
         .unwrap();
+
+    let metadata = rdb_file.metadata().unwrap();
+    let mode = metadata.mode() & 0o777; // Apply mask to get just permission bits
+    println!(
+        "Path: {:?}, File owner: {:?}, permissions: {:04o} ({})",
+        rdb_file,
+        metadata.uid(),
+        mode,
+        format_mode(mode)
+    );
+    println!("Running as user id: {}", unsafe { geteuid() });
     let actual_resp = parse_rdb_to_resp(&rdb_file);
 
     // Compare commands as unordered sets
@@ -238,4 +257,20 @@ fn test_cli_commands_succeed(
     }
 
     cmd.arg(&path).assert().success();
+}
+
+fn format_mode(mode: u32) -> String {
+    let user = [(mode >> 6) & 0o7];
+    let group = [(mode >> 3) & 0o7];
+    let other = [mode & 0o7];
+    
+    let convert = |bits: [u32; 1]| {
+        let mut s = String::with_capacity(3);
+        s.push(if bits[0] & 0o4 != 0 { 'r' } else { '-' });
+        s.push(if bits[0] & 0o2 != 0 { 'w' } else { '-' });
+        s.push(if bits[0] & 0o1 != 0 { 'x' } else { '-' });
+        s
+    };
+
+    format!("{}{}{}", convert(user), convert(group), convert(other))
 }
