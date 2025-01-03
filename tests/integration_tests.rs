@@ -215,6 +215,10 @@ async fn test_redis_protocol_reproducibility(#[case] major_version: u8, #[case] 
         .exec(ExecCommand::new(["chmod", "644", "/data/dump.rdb"]))
         .await
         .unwrap();
+    container
+        .exec(ExecCommand::new(["chown", "1001:121", "/data/dump.rdb"]))
+        .await
+        .unwrap();
 
     let metadata = rdb_file.metadata().unwrap();
     let mode = metadata.mode() & 0o777; // Apply mask to get just permission bits
