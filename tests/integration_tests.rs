@@ -6,7 +6,6 @@ use rstest::rstest;
 use std::fs;
 use std::fs::File;
 use std::io::BufReader;
-use std::os::unix::fs::MetadataExt;
 use std::path::Path;
 use std::path::PathBuf;
 use tempfile::tempdir;
@@ -169,12 +168,6 @@ fn split_resp_commands(resp: &str) -> Vec<String> {
     commands
 }
 
-#[link(name = "c")]
-unsafe extern "C" {
-    unsafe fn geteuid() -> u32;
-    unsafe fn getegid() -> u32;
-}
-
 #[rstest]
 #[case::redis_6_2(6, 2)]
 #[case::redis_7_0(7, 0)]
@@ -209,10 +202,16 @@ async fn test_redis_protocol_reproducibility(#[case] major_version: u8, #[case] 
     let expected_resp = execute_commands(&mut conn, &commands).await;
     redis::cmd("SAVE").exec(&mut conn).unwrap();
 
-    // Give Redis a moment to finish writing
-    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-
     let rdb_file = Path::new(&tmp_dir.path()).join("dump.rdb");
+
+    // Test if file is fully written
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .open(&rdb_file)
+        .unwrap();
+    println!("Attempting to sync file...");
+    file.sync_all().unwrap();
+    println!("File sync completed");
 
     // Debug before chmod/chown
     let mut ls_before = container
@@ -224,38 +223,6 @@ async fn test_redis_protocol_reproducibility(#[case] major_version: u8, #[case] 
         String::from_utf8_lossy(&ls_before.stdout_to_vec().await.unwrap())
     );
 
-    // Give Redis a moment to finish writing
-    tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
-
-    container
-        .exec(ExecCommand::new(["chmod", "644", "/data/dump.rdb"]))
-        .await
-        .unwrap();
-    container
-        .exec(ExecCommand::new(["chown", "1001:121", "/data/dump.rdb"]))
-        .await
-        .unwrap();
-
-    // Debug after chmod/chown
-    let mut ls_after = container
-        .exec(ExecCommand::new(["ls", "-l", "/data/dump.rdb"]))
-        .await
-        .unwrap();
-    println!(
-        "After chmod/chown: {}",
-        String::from_utf8_lossy(&ls_after.stdout_to_vec().await.unwrap())
-    );
-
-    let metadata = rdb_file.metadata().unwrap();
-    let mode = metadata.mode() & 0o777; // Apply mask to get just permission bits
-    println!(
-        "Path: {:?}, File owner: {:?}, permissions: {:04o} ({})",
-        rdb_file,
-        metadata.uid(),
-        mode,
-        format_mode(mode)
-    );
-    println!("Running as user id: {}", unsafe { geteuid() });
     let actual_resp = parse_rdb_to_resp(&rdb_file);
 
     // Compare commands as unordered sets
@@ -265,7 +232,6 @@ async fn test_redis_protocol_reproducibility(#[case] major_version: u8, #[case] 
         split_resp_commands(&actual_resp).into_iter().collect();
 
     assert_eq!(actual_commands, expected_commands);
-    assert!(false);
 }
 
 #[rstest]
@@ -288,20 +254,4 @@ fn test_cli_commands_succeed(
     }
 
     cmd.arg(&path).assert().success();
-}
-
-fn format_mode(mode: u32) -> String {
-    let user = [(mode >> 6) & 0o7];
-    let group = [(mode >> 3) & 0o7];
-    let other = [mode & 0o7];
-
-    let convert = |bits: [u32; 1]| {
-        let mut s = String::with_capacity(3);
-        s.push(if bits[0] & 0o4 != 0 { 'r' } else { '-' });
-        s.push(if bits[0] & 0o2 != 0 { 'w' } else { '-' });
-        s.push(if bits[0] & 0o1 != 0 { 'x' } else { '-' });
-        s
-    };
-
-    format!("{}{}{}", convert(user), convert(group), convert(other))
 }
