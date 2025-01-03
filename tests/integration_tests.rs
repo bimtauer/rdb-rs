@@ -209,8 +209,19 @@ async fn test_redis_protocol_reproducibility(#[case] major_version: u8, #[case] 
 
     let expected_resp = execute_commands(&mut conn, &commands).await;
     redis::cmd("SAVE").exec(&mut conn).unwrap();
-
+    
+    // Give Redis a moment to finish writing
+    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+    
     let rdb_file = Path::new(&tmp_dir.path()).join("dump.rdb");
+    
+    // Debug before chmod/chown
+    let mut ls_before = container
+        .exec(ExecCommand::new(["ls", "-l", "/data/dump.rdb"]))
+        .await
+        .unwrap();
+    println!("Before chmod/chown: {}", String::from_utf8_lossy(&ls_before.stdout_to_vec().await.unwrap()));
+
     container
         .exec(ExecCommand::new(["chmod", "644", "/data/dump.rdb"]))
         .await
@@ -220,13 +231,12 @@ async fn test_redis_protocol_reproducibility(#[case] major_version: u8, #[case] 
         .await
         .unwrap();
     
-    // Add debug ls command
-    let mut ls_output = container
+    // Debug after chmod/chown
+    let mut ls_after = container
         .exec(ExecCommand::new(["ls", "-l", "/data/dump.rdb"]))
         .await
         .unwrap();
-    let output = ls_output.stdout_to_vec().await.unwrap();
-    println!("Inside container ls output: {}", String::from_utf8_lossy(&output));
+    println!("After chmod/chown: {}", String::from_utf8_lossy(&ls_after.stdout_to_vec().await.unwrap()));
 
     let metadata = rdb_file.metadata().unwrap();
     let mode = metadata.mode() & 0o777; // Apply mask to get just permission bits
