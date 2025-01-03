@@ -6,6 +6,7 @@ use rstest::rstest;
 use std::fs;
 use std::fs::File;
 use std::io::BufReader;
+use std::os::unix::fs::MetadataExt;
 use std::path::Path;
 use std::path::PathBuf;
 use tempfile::tempdir;
@@ -16,8 +17,6 @@ use testcontainers::ContainerAsync;
 use testcontainers_modules::{
     redis::Redis, testcontainers::runners::AsyncRunner, testcontainers::ImageExt,
 };
-use std::os::unix::fs::MetadataExt;
-
 
 fn run_dump_test(input: PathBuf, format: &str) -> String {
     let file_stem = input
@@ -98,7 +97,6 @@ async fn redis_client(
             tmp_dir.path().display().to_string(),
             "/data",
         ))
-        .with_privileged(true)
         .start()
         .await
         .expect("Failed to start Redis container");
@@ -210,18 +208,21 @@ async fn test_redis_protocol_reproducibility(#[case] major_version: u8, #[case] 
 
     let expected_resp = execute_commands(&mut conn, &commands).await;
     redis::cmd("SAVE").exec(&mut conn).unwrap();
-    
+
     // Give Redis a moment to finish writing
     tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-    
+
     let rdb_file = Path::new(&tmp_dir.path()).join("dump.rdb");
-    
+
     // Debug before chmod/chown
     let mut ls_before = container
         .exec(ExecCommand::new(["ls", "-l", "/data/dump.rdb"]))
         .await
         .unwrap();
-    println!("Before chmod/chown: {}", String::from_utf8_lossy(&ls_before.stdout_to_vec().await.unwrap()));
+    println!(
+        "Before chmod/chown: {}",
+        String::from_utf8_lossy(&ls_before.stdout_to_vec().await.unwrap())
+    );
 
     // Give Redis a moment to finish writing
     tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
@@ -234,13 +235,16 @@ async fn test_redis_protocol_reproducibility(#[case] major_version: u8, #[case] 
         .exec(ExecCommand::new(["chown", "1001:121", "/data/dump.rdb"]))
         .await
         .unwrap();
-    
+
     // Debug after chmod/chown
     let mut ls_after = container
         .exec(ExecCommand::new(["ls", "-l", "/data/dump.rdb"]))
         .await
         .unwrap();
-    println!("After chmod/chown: {}", String::from_utf8_lossy(&ls_after.stdout_to_vec().await.unwrap()));
+    println!(
+        "After chmod/chown: {}",
+        String::from_utf8_lossy(&ls_after.stdout_to_vec().await.unwrap())
+    );
 
     let metadata = rdb_file.metadata().unwrap();
     let mode = metadata.mode() & 0o777; // Apply mask to get just permission bits
@@ -261,6 +265,7 @@ async fn test_redis_protocol_reproducibility(#[case] major_version: u8, #[case] 
         split_resp_commands(&actual_resp).into_iter().collect();
 
     assert_eq!(actual_commands, expected_commands);
+    assert!(false);
 }
 
 #[rstest]
@@ -289,7 +294,7 @@ fn format_mode(mode: u32) -> String {
     let user = [(mode >> 6) & 0o7];
     let group = [(mode >> 3) & 0o7];
     let other = [mode & 0o7];
-    
+
     let convert = |bits: [u32; 1]| {
         let mut s = String::with_capacity(3);
         s.push(if bits[0] & 0o4 != 0 { 'r' } else { '-' });
