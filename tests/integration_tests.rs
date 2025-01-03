@@ -223,6 +223,9 @@ async fn test_redis_protocol_reproducibility(#[case] major_version: u8, #[case] 
         .unwrap();
     println!("Before chmod/chown: {}", String::from_utf8_lossy(&ls_before.stdout_to_vec().await.unwrap()));
 
+    // Give Redis a moment to finish writing
+    tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+
     container
         .exec(ExecCommand::new(["chmod", "644", "/data/dump.rdb"]))
         .await
