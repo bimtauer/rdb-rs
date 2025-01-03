@@ -175,7 +175,9 @@ fn split_resp_commands(resp: &str) -> Vec<String> {
 #[case::redis_7_4(7, 4)]
 #[tokio::test]
 async fn test_redis_protocol_reproducibility(#[case] major_version: u8, #[case] minor_version: u8) {
-    let (client, tmp_dir, _container) = redis_client(major_version, minor_version).await;
+    use testcontainers::core::ExecCommand;
+
+    let (client, tmp_dir, container) = redis_client(major_version, minor_version).await;
     let mut conn = client.get_connection().unwrap();
 
     let commands = vec![
@@ -201,9 +203,45 @@ async fn test_redis_protocol_reproducibility(#[case] major_version: u8, #[case] 
 
     let expected_resp = execute_commands(&mut conn, &commands).await;
     redis::cmd("SAVE").exec(&mut conn).unwrap();
-
+    
+    // Give Redis a moment to finish writing
+    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+    
     let rdb_file = Path::new(&tmp_dir.path()).join("dump.rdb");
+    
+    // Debug before chmod/chown
+    let mut ls_before = container
+        .exec(ExecCommand::new(["ls", "-l", "/data/dump.rdb"]))
+        .await
+        .unwrap();
+    println!("Before chmod/chown: {}", String::from_utf8_lossy(&ls_before.stdout_to_vec().await.unwrap()));
 
+    container
+        .exec(ExecCommand::new(["chmod", "644", "/data/dump.rdb"]))
+        .await
+        .unwrap();
+    container
+        .exec(ExecCommand::new(["chown", "1001:121", "/data/dump.rdb"]))
+        .await
+        .unwrap();
+    
+    // Debug after chmod/chown
+    let mut ls_after = container
+        .exec(ExecCommand::new(["ls", "-l", "/data/dump.rdb"]))
+        .await
+        .unwrap();
+    println!("After chmod/chown: {}", String::from_utf8_lossy(&ls_after.stdout_to_vec().await.unwrap()));
+
+    let metadata = rdb_file.metadata().unwrap();
+    let mode = metadata.mode() & 0o777; // Apply mask to get just permission bits
+    println!(
+        "Path: {:?}, File owner: {:?}, permissions: {:04o} ({})",
+        rdb_file,
+        metadata.uid(),
+        mode,
+        format_mode(mode)
+    );
+    println!("Running as user id: {}", unsafe { geteuid() });
     let actual_resp = parse_rdb_to_resp(&rdb_file);
 
     // Compare commands as unordered sets
