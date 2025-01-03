@@ -219,6 +219,14 @@ async fn test_redis_protocol_reproducibility(#[case] major_version: u8, #[case] 
         .exec(ExecCommand::new(["chown", "1001:121", "/data/dump.rdb"]))
         .await
         .unwrap();
+    
+    // Add debug ls command
+    let mut ls_output = container
+        .exec(ExecCommand::new(["ls", "-l", "/data/dump.rdb"]))
+        .await
+        .unwrap();
+    let output = ls_output.stdout_to_vec().await.unwrap();
+    println!("Inside container ls output: {}", String::from_utf8_lossy(&output));
 
     let metadata = rdb_file.metadata().unwrap();
     let mode = metadata.mode() & 0o777; // Apply mask to get just permission bits
