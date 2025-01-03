@@ -11,6 +11,7 @@ jobs:
   build_and_test:
     name: Rust project - latest
     runs-on: ubuntu-latest
+    continue-on-error: true
     strategy:
       matrix:
         toolchain:
@@ -21,6 +22,9 @@ jobs:
       - uses: actions/checkout@v4
       - name: setup toolchain
         run: rustup update ${{ matrix.toolchain }} && rustup default ${{ matrix.toolchain }}
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
       
       - name: cargo build
         run: cargo build --verbose

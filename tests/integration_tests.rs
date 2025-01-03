@@ -15,6 +15,7 @@ use testcontainers::ContainerAsync;
 use testcontainers_modules::{
     redis::Redis, testcontainers::runners::AsyncRunner, testcontainers::ImageExt,
 };
+use std::os::unix::fs::MetadataExt;
 
 fn run_dump_test(input: PathBuf, format: &str) -> String {
     let file_stem = input
@@ -135,6 +136,8 @@ async fn execute_commands(conn: &mut redis::Connection, commands: &[(&str, Vec<&
 }
 
 fn parse_rdb_to_resp(rdb_path: &Path) -> String {
+    let metadata = rdb_path.metadata().unwrap();
+    println!("File owner: {:?}, permissions: {:?}", metadata.uid(), metadata.mode());
     let rdb_file = File::open(rdb_path).unwrap();
     let rdb_reader = BufReader::new(rdb_file);
     let tmp_file = tempfile::NamedTempFile::new().unwrap();
