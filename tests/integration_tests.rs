@@ -96,6 +96,7 @@ async fn redis_client(
             tmp_dir.path().display().to_string(),
             "/data",
         ))
+        .with_userns_mode("host")
         .start()
         .await
         .expect("Failed to start Redis container");
