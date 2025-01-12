@@ -10,7 +10,6 @@ use std::path::Path;
 use std::path::PathBuf;
 use tempfile::tempdir;
 use tempfile::TempDir;
-use testcontainers::core::ExecCommand;
 use testcontainers::core::Mount;
 use testcontainers::ContainerAsync;
 use testcontainers_modules::{
@@ -96,7 +95,7 @@ async fn redis_client(
             tmp_dir.path().display().to_string(),
             "/data",
         ))
-        .with_userns_mode("host")
+        .with_cmd(vec!["--user", "1001:1001"])
         .start()
         .await
         .expect("Failed to start Redis container");
@@ -176,7 +175,7 @@ fn split_resp_commands(resp: &str) -> Vec<String> {
 #[case::redis_7_4(7, 4)]
 #[tokio::test]
 async fn test_redis_protocol_reproducibility(#[case] major_version: u8, #[case] minor_version: u8) {
-    let (client, tmp_dir, container) = redis_client(major_version, minor_version).await;
+    let (client, tmp_dir, _container) = redis_client(major_version, minor_version).await;
     let mut conn = client.get_connection().unwrap();
 
     let commands = vec![
@@ -204,25 +203,6 @@ async fn test_redis_protocol_reproducibility(#[case] major_version: u8, #[case] 
     redis::cmd("SAVE").exec(&mut conn).unwrap();
 
     let rdb_file = Path::new(&tmp_dir.path()).join("dump.rdb");
-
-    // Test if file is fully written
-    let file = std::fs::OpenOptions::new()
-        .read(true)
-        .open(&rdb_file)
-        .unwrap();
-    println!("Attempting to sync file...");
-    file.sync_all().unwrap();
-    println!("File sync completed");
-
-    // Debug before chmod/chown
-    let mut ls_before = container
-        .exec(ExecCommand::new(["ls", "-l", "/data/dump.rdb"]))
-        .await
-        .unwrap();
-    println!(
-        "Before chmod/chown: {}",
-        String::from_utf8_lossy(&ls_before.stdout_to_vec().await.unwrap())
-    );
 
     let actual_resp = parse_rdb_to_resp(&rdb_file);
 
