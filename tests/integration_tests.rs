@@ -95,7 +95,7 @@ async fn redis_client(
             tmp_dir.path().display().to_string(),
             "/data",
         ))
-        .with_cmd(vec!["--user", "1001:1001"])
+        .with_cmd(vec!["/bin/sh", "-c", "chown -R 1001:1001 /data && redis-server --user 1001:1001"])
         .start()
         .await
         .expect("Failed to start Redis container");
