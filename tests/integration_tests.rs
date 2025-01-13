@@ -3,21 +3,20 @@ use pretty_assertions::assert_eq;
 use rdb::{self, filter, formatter};
 use redis::Client;
 use rstest::rstest;
-use testcontainers::core::ExecCommand;
 use std::fs;
 use std::fs::File;
 use std::io::BufReader;
+use std::os::unix::fs::MetadataExt;
 use std::path::Path;
 use std::path::PathBuf;
 use tempfile::tempdir;
 use tempfile::TempDir;
+use testcontainers::core::ExecCommand;
 use testcontainers::core::Mount;
 use testcontainers::ContainerAsync;
 use testcontainers_modules::{
     redis::Redis, testcontainers::runners::AsyncRunner, testcontainers::ImageExt,
 };
-use std::os::unix::fs::MetadataExt;
-
 
 fn run_dump_test(input: PathBuf, format: &str) -> String {
     let file_stem = input
@@ -103,11 +102,11 @@ async fn redis_client(
         .await
         .expect("Failed to start Redis container");
 
-    let mut debug_cmd = container
-        .exec(ExecCommand::new(["id"]))
-        .await
-        .unwrap();
-    println!("Container running as: {}", String::from_utf8_lossy(&debug_cmd.stdout_to_vec().await.unwrap()));
+    let mut debug_cmd = container.exec(ExecCommand::new(["id"])).await.unwrap();
+    println!(
+        "Container running as: {}",
+        String::from_utf8_lossy(&debug_cmd.stdout_to_vec().await.unwrap())
+    );
 
     let host_ip = container.get_host().await.unwrap();
     let host_port = container.get_host_port_ipv4(6379).await.unwrap();
@@ -218,18 +217,33 @@ async fn test_redis_protocol_reproducibility(#[case] major_version: u8, #[case] 
 
     let expected_resp = execute_commands(&mut conn, &commands).await;
     redis::cmd("SAVE").exec(&mut conn).unwrap();
-    
+
     // Give Redis a moment to finish writing
     tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-    
+
     let rdb_file = Path::new(&tmp_dir.path()).join("dump.rdb");
-    
+
+    let mut user_in_container = container.exec(ExecCommand::new(["id"])).await.unwrap();
+
+    let mut group_in_container = container
+        .exec(ExecCommand::new(["id", "-g"]))
+        .await
+        .unwrap();
+    println!(
+        "User in container: {}:{}",
+        String::from_utf8_lossy(&user_in_container.stdout_to_vec().await.unwrap()),
+        String::from_utf8_lossy(&group_in_container.stdout_to_vec().await.unwrap())
+    );
+
     // Debug before chmod/chown
     let mut ls_before = container
         .exec(ExecCommand::new(["ls", "-l", "/data/dump.rdb"]))
         .await
         .unwrap();
-    println!("Before chmod/chown: {}", String::from_utf8_lossy(&ls_before.stdout_to_vec().await.unwrap()));
+    println!(
+        "Before chmod/chown: {}",
+        String::from_utf8_lossy(&ls_before.stdout_to_vec().await.unwrap())
+    );
 
     container
         .exec(ExecCommand::new(["chmod", "644", "/data/dump.rdb"]))
@@ -239,13 +253,16 @@ async fn test_redis_protocol_reproducibility(#[case] major_version: u8, #[case] 
         .exec(ExecCommand::new(["chown", "1001:121", "/data/dump.rdb"]))
         .await
         .unwrap();
-    
+
     // Debug after chmod/chown
     let mut ls_after = container
         .exec(ExecCommand::new(["ls", "-l", "/data/dump.rdb"]))
         .await
         .unwrap();
-    println!("After chmod/chown: {}", String::from_utf8_lossy(&ls_after.stdout_to_vec().await.unwrap()));
+    println!(
+        "After chmod/chown: {}",
+        String::from_utf8_lossy(&ls_after.stdout_to_vec().await.unwrap())
+    );
 
     let metadata = rdb_file.metadata().unwrap();
     let mode = metadata.mode() & 0o777; // Apply mask to get just permission bits
@@ -256,7 +273,7 @@ async fn test_redis_protocol_reproducibility(#[case] major_version: u8, #[case] 
         mode,
         format_mode(mode)
     );
-    println!("Running as user id: {}", unsafe { geteuid() });
+    println!("Running as user inside test: {}:{}", unsafe { geteuid() }, unsafe { getegid() });
     let actual_resp = parse_rdb_to_resp(&rdb_file);
 
     // Compare commands as unordered sets
@@ -265,8 +282,8 @@ async fn test_redis_protocol_reproducibility(#[case] major_version: u8, #[case] 
     let actual_commands: std::collections::HashSet<_> =
         split_resp_commands(&actual_resp).into_iter().collect();
 
-    assert!(false);
     assert_eq!(actual_commands, expected_commands);
+    assert!(false);
 }
 
 #[rstest]
@@ -295,7 +312,7 @@ fn format_mode(mode: u32) -> String {
     let user = [(mode >> 6) & 0o7];
     let group = [(mode >> 3) & 0o7];
     let other = [mode & 0o7];
-    
+
     let convert = |bits: [u32; 1]| {
         let mut s = String::with_capacity(3);
         s.push(if bits[0] & 0o4 != 0 { 'r' } else { '-' });
