@@ -310,7 +310,7 @@ async fn test_redis_protocol_reproducibility(#[case] major_version: u8, #[case] 
         split_resp_commands(&actual_resp).into_iter().collect();
 
     assert_eq!(actual_commands, expected_commands);
-    //assert!(false);
+    assert!(false);  // Temporary debug - force output even on success
 }
 
 #[rstest]
