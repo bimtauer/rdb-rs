@@ -245,23 +245,46 @@ async fn test_redis_protocol_reproducibility(#[case] major_version: u8, #[case] 
         String::from_utf8_lossy(&ls_before.stdout_to_vec().await.unwrap())
     );
 
-    container
-        .exec(ExecCommand::new(["chmod", "644", "/data/dump.rdb"]))
-        .await
-        .unwrap();
-    container
-        .exec(ExecCommand::new(["chown", "1001:121", "/data/dump.rdb"]))
-        .await
-        .unwrap();
-
-    // Debug after chmod/chown
-    let mut ls_after = container
-        .exec(ExecCommand::new(["ls", "-l", "/data/dump.rdb"]))
+    // After SAVE, before the chmod/chown attempts:
+    let mut stat_cmd = container
+        .exec(ExecCommand::new(["stat", "/data/dump.rdb"]))
         .await
         .unwrap();
     println!(
-        "After chmod/chown: {}",
-        String::from_utf8_lossy(&ls_after.stdout_to_vec().await.unwrap())
+        "File stats before changes:\n{}",
+        String::from_utf8_lossy(&stat_cmd.stdout_to_vec().await.unwrap())
+    );
+
+    // Try chmod first, check result
+    let chmod_result = container
+        .exec(ExecCommand::new(["chmod", "644", "/data/dump.rdb"]))
+        .await;
+    println!("chmod result: {:?}", chmod_result);
+
+    // Check intermediate state
+    stat_cmd = container
+        .exec(ExecCommand::new(["stat", "/data/dump.rdb"]))
+        .await
+        .unwrap();
+    println!(
+        "File stats after chmod:\n{}",
+        String::from_utf8_lossy(&stat_cmd.stdout_to_vec().await.unwrap())
+    );
+
+    // Try chown, check result
+    let chown_result = container
+        .exec(ExecCommand::new(["chown", "1001:121", "/data/dump.rdb"]))
+        .await;
+    println!("chown result: {:?}", chown_result);
+
+    // Final state check
+    stat_cmd = container
+        .exec(ExecCommand::new(["stat", "/data/dump.rdb"]))
+        .await
+        .unwrap();
+    println!(
+        "File stats after chown:\n{}",
+        String::from_utf8_lossy(&stat_cmd.stdout_to_vec().await.unwrap())
     );
 
     let metadata = rdb_file.metadata().unwrap();
