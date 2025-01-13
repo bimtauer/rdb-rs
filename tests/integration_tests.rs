@@ -118,6 +118,22 @@ async fn redis_client(
     let url = format!("redis://{}:{}", host_ip, host_port);
     let client = Client::open(url).expect("Failed to create Redis client");
 
+    // After container start:
+    let mut mount_debug = container.exec(ExecCommand::new(["mount"])).await.unwrap();
+    println!(
+        "Mount info: {}",
+        String::from_utf8_lossy(&mount_debug.stdout_to_vec().await.unwrap())
+    );
+
+    let mut cap_debug = container
+        .exec(ExecCommand::new(["capsh", "--print"]))
+        .await
+        .unwrap();
+    println!(
+        "Capabilities: {}",
+        String::from_utf8_lossy(&cap_debug.stdout_to_vec().await.unwrap())
+    );
+
     (client, tmp_dir, container)
 }
 
