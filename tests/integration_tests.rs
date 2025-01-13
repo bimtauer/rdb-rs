@@ -273,7 +273,11 @@ async fn test_redis_protocol_reproducibility(#[case] major_version: u8, #[case] 
         mode,
         format_mode(mode)
     );
-    println!("Running as user inside test: {}:{}", unsafe { geteuid() }, unsafe { getegid() });
+    println!(
+        "Running as user inside test: {}:{}",
+        unsafe { geteuid() },
+        unsafe { getegid() }
+    );
     let actual_resp = parse_rdb_to_resp(&rdb_file);
 
     // Compare commands as unordered sets
