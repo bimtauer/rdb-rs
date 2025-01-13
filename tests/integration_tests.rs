@@ -97,7 +97,12 @@ async fn redis_client(
             tmp_dir.path().display().to_string(),
             "/data",
         ))
-        //.with_cmd(vec!["/bin/sh", "-c", "chown -R 1001:1001 /data && redis-server --user 1001:1001"])
+        .with_cmd(vec![
+            "/bin/sh",
+            "-c",
+            "chown -R 1001:128 /data && redis-server --user 1001:128",
+        ])
+        .with_env_var("REDIS_USER", "1001:121") // Tell Redis to run as our test user
         .start()
         .await
         .expect("Failed to start Redis container");
@@ -310,7 +315,7 @@ async fn test_redis_protocol_reproducibility(#[case] major_version: u8, #[case] 
         split_resp_commands(&actual_resp).into_iter().collect();
 
     assert_eq!(actual_commands, expected_commands);
-    assert!(false);  // Temporary debug - force output even on success
+    assert!(false); // Temporary debug - force output even on success
 }
 
 #[rstest]
