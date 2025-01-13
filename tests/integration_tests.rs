@@ -3,6 +3,7 @@ use pretty_assertions::assert_eq;
 use rdb::{self, filter, formatter};
 use redis::Client;
 use rstest::rstest;
+use testcontainers::core::ExecCommand;
 use std::fs;
 use std::fs::File;
 use std::io::BufReader;
@@ -97,10 +98,16 @@ async fn redis_client(
             tmp_dir.path().display().to_string(),
             "/data",
         ))
-        .with_cmd(vec!["/bin/sh", "-c", "chown -R 1001:1001 /data && redis-server --user 1001:1001"])
+        //.with_cmd(vec!["/bin/sh", "-c", "chown -R 1001:1001 /data && redis-server --user 1001:1001"])
         .start()
         .await
         .expect("Failed to start Redis container");
+
+    let mut debug_cmd = container
+        .exec(ExecCommand::new(["id"]))
+        .await
+        .unwrap();
+    println!("Container running as: {}", String::from_utf8_lossy(&debug_cmd.stdout_to_vec().await.unwrap()));
 
     let host_ip = container.get_host().await.unwrap();
     let host_port = container.get_host_port_ipv4(6379).await.unwrap();
