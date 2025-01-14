@@ -103,6 +103,7 @@ async fn redis_client(
         .await
         .expect("Failed to start Redis container");
 
+    // DEBUG SECTION, remove after debugging
     let mut debug_cmd = container
         .exec(ExecCommand::new(["id", "-u"]))
         .await
@@ -117,7 +118,7 @@ async fn redis_client(
     let url = format!("redis://{}:{}", host_ip, host_port);
     let client = Client::open(url).expect("Failed to create Redis client");
 
-    // After container start:
+    // DEBUG SECTION, remove after debugging
     let mut mount_debug = container
         .exec(ExecCommand::new(["/bin/sh", "-c", "mount | grep data"]))
         .await
@@ -236,23 +237,9 @@ async fn test_redis_protocol_reproducibility(#[case] major_version: u8, #[case] 
 
     let rdb_file = Path::new(&tmp_dir.path()).join("dump.rdb");
 
-    let mut user_in_container = container
-        .exec(ExecCommand::new(["id", "-u"]))
-        .await
-        .unwrap();
-
-    let mut group_in_container = container
-        .exec(ExecCommand::new(["id", "-g"]))
-        .await
-        .unwrap();
-    println!(
-        "User in container: {}:{}",
-        String::from_utf8_lossy(&user_in_container.stdout_to_vec().await.unwrap()),
-        String::from_utf8_lossy(&group_in_container.stdout_to_vec().await.unwrap())
-    );
-
+    // DEBUG SECTION, remove after debugging
     // After SAVE, before the chmod/chown attempts:
-    let mut stat_cmd = container
+    let mut stat_cmd_before = container
         .exec(ExecCommand::new([
             "stat",
             "-c",
@@ -261,19 +248,15 @@ async fn test_redis_protocol_reproducibility(#[case] major_version: u8, #[case] 
         ]))
         .await
         .unwrap();
-    println!(
-        "File stats before changes:\n{}",
-        String::from_utf8_lossy(&stat_cmd.stdout_to_vec().await.unwrap())
-    );
 
     // Try chmod first, check result
     let chmod_result = container
         .exec(ExecCommand::new(["chmod", "644", "/data/dump.rdb"]))
         .await;
-    println!("chmod result: {:?}", chmod_result);
+    println!("chmod ok: {:?}", chmod_result.is_ok());
 
     // Check intermediate state
-    stat_cmd = container
+    let mut stat_cmd_after_chmod = container
         .exec(ExecCommand::new([
             "stat",
             "-c",
@@ -282,19 +265,16 @@ async fn test_redis_protocol_reproducibility(#[case] major_version: u8, #[case] 
         ]))
         .await
         .unwrap();
-    println!(
-        "File stats after chmod:\n{}",
-        String::from_utf8_lossy(&stat_cmd.stdout_to_vec().await.unwrap())
-    );
+
 
     // Try chown, check result
     let chown_result = container
         .exec(ExecCommand::new(["chown", "1001:121", "/data/dump.rdb"]))
         .await;
-    println!("chown result: {:?}", chown_result);
+    println!("chown ok: {:?}", chown_result.is_ok());
 
     // Final state check
-    stat_cmd = container
+    let mut stat_cmd_after_chown = container
         .exec(ExecCommand::new([
             "stat",
             "-c",
@@ -303,34 +283,45 @@ async fn test_redis_protocol_reproducibility(#[case] major_version: u8, #[case] 
         ]))
         .await
         .unwrap();
+
+    
     println!(
-        "File stats after chown:\n{}",
-        String::from_utf8_lossy(&stat_cmd.stdout_to_vec().await.unwrap())
+        "\nFile stats before changes: {}",
+        String::from_utf8_lossy(&stat_cmd_before.stdout_to_vec().await.unwrap()).trim().to_string()
+    );
+    println!(
+        "File stats after chmod:    {}",
+        String::from_utf8_lossy(&stat_cmd_after_chmod.stdout_to_vec().await.unwrap()).trim().to_string()
+    );
+    println!(
+        "File stats after chown:    {}",
+        String::from_utf8_lossy(&stat_cmd_after_chown.stdout_to_vec().await.unwrap()).trim().to_string()
     );
 
     let metadata = rdb_file.metadata().unwrap();
     let mode = metadata.mode() & 0o777; // Apply mask to get just permission bits
-    println!("File stats outside container:");
     println!(
-        "{:?} {:?} {:?}",
+        "File stats outside:        '-{} {:?} {:?}'\n",
         format_mode(mode),
         metadata.uid(),
         metadata.gid()
     );
+
     println!(
-        "Running as user inside test: {}:{}",
+        "Tests running as: {}\n",
         unsafe { geteuid() },
-        unsafe { getegid() }
     );
     let actual_resp = parse_rdb_to_resp(&rdb_file);
+    // DEBUG SECTION over
 
-    // Compare commands as unordered sets
     let expected_commands: std::collections::HashSet<_> =
         split_resp_commands(&expected_resp).into_iter().collect();
     let actual_commands: std::collections::HashSet<_> =
         split_resp_commands(&actual_resp).into_iter().collect();
 
     assert_eq!(actual_commands, expected_commands);
+    
+    // REMOVE this after debugging
     assert!(
         false,
         "SUCCESS: Temporary debug - force output even on success"
