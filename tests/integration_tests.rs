@@ -97,17 +97,16 @@ async fn redis_client(
             tmp_dir.path().display().to_string(),
             "/data",
         ))
-        .with_cmd(vec![
-            "/bin/sh",
-            "-c",
-            "chown -R 1001:128 /data && redis-server --user 1001:128",
-        ])
+        .with_cmd(vec!["/bin/sh", "-c", "redis-server --user 1001:128"])
         .with_env_var("REDIS_USER", "1001:121") // Tell Redis to run as our test user
         .start()
         .await
         .expect("Failed to start Redis container");
 
-    let mut debug_cmd = container.exec(ExecCommand::new(["id"])).await.unwrap();
+    let mut debug_cmd = container
+        .exec(ExecCommand::new(["id", "-u"]))
+        .await
+        .unwrap();
     println!(
         "Container running as: {}",
         String::from_utf8_lossy(&debug_cmd.stdout_to_vec().await.unwrap())
@@ -119,21 +118,14 @@ async fn redis_client(
     let client = Client::open(url).expect("Failed to create Redis client");
 
     // After container start:
-    let mut mount_debug = container.exec(ExecCommand::new(["mount"])).await.unwrap();
+    let mut mount_debug = container
+        .exec(ExecCommand::new(["/bin/sh", "-c", "mount | grep data"]))
+        .await
+        .unwrap();
     println!(
         "Mount info: {}",
         String::from_utf8_lossy(&mount_debug.stdout_to_vec().await.unwrap())
     );
-
-    let mut cap_debug = container
-        .exec(ExecCommand::new(["capsh", "--print"]))
-        .await
-        .unwrap();
-    println!(
-        "Capabilities: {}",
-        String::from_utf8_lossy(&cap_debug.stdout_to_vec().await.unwrap())
-    );
-
     (client, tmp_dir, container)
 }
 
@@ -244,7 +236,10 @@ async fn test_redis_protocol_reproducibility(#[case] major_version: u8, #[case] 
 
     let rdb_file = Path::new(&tmp_dir.path()).join("dump.rdb");
 
-    let mut user_in_container = container.exec(ExecCommand::new(["id"])).await.unwrap();
+    let mut user_in_container = container
+        .exec(ExecCommand::new(["id", "-u"]))
+        .await
+        .unwrap();
 
     let mut group_in_container = container
         .exec(ExecCommand::new(["id", "-g"]))
@@ -256,19 +251,14 @@ async fn test_redis_protocol_reproducibility(#[case] major_version: u8, #[case] 
         String::from_utf8_lossy(&group_in_container.stdout_to_vec().await.unwrap())
     );
 
-    // Debug before chmod/chown
-    let mut ls_before = container
-        .exec(ExecCommand::new(["ls", "-l", "/data/dump.rdb"]))
-        .await
-        .unwrap();
-    println!(
-        "Before chmod/chown: {}",
-        String::from_utf8_lossy(&ls_before.stdout_to_vec().await.unwrap())
-    );
-
     // After SAVE, before the chmod/chown attempts:
     let mut stat_cmd = container
-        .exec(ExecCommand::new(["stat", "/data/dump.rdb"]))
+        .exec(ExecCommand::new([
+            "stat",
+            "-c",
+            "'%A %U %G'",
+            "/data/dump.rdb",
+        ]))
         .await
         .unwrap();
     println!(
@@ -284,7 +274,12 @@ async fn test_redis_protocol_reproducibility(#[case] major_version: u8, #[case] 
 
     // Check intermediate state
     stat_cmd = container
-        .exec(ExecCommand::new(["stat", "/data/dump.rdb"]))
+        .exec(ExecCommand::new([
+            "stat",
+            "-c",
+            "'%A %U %G'",
+            "/data/dump.rdb",
+        ]))
         .await
         .unwrap();
     println!(
@@ -300,7 +295,12 @@ async fn test_redis_protocol_reproducibility(#[case] major_version: u8, #[case] 
 
     // Final state check
     stat_cmd = container
-        .exec(ExecCommand::new(["stat", "/data/dump.rdb"]))
+        .exec(ExecCommand::new([
+            "stat",
+            "-c",
+            "'%A %U %G'",
+            "/data/dump.rdb",
+        ]))
         .await
         .unwrap();
     println!(
@@ -310,12 +310,12 @@ async fn test_redis_protocol_reproducibility(#[case] major_version: u8, #[case] 
 
     let metadata = rdb_file.metadata().unwrap();
     let mode = metadata.mode() & 0o777; // Apply mask to get just permission bits
+    println!("File stats outside container:");
     println!(
-        "Path: {:?}, File owner: {:?}, permissions: {:04o} ({})",
-        rdb_file,
+        "{:?} {:?} {:?}",
+        format_mode(mode),
         metadata.uid(),
-        mode,
-        format_mode(mode)
+        metadata.gid()
     );
     println!(
         "Running as user inside test: {}:{}",
@@ -331,7 +331,10 @@ async fn test_redis_protocol_reproducibility(#[case] major_version: u8, #[case] 
         split_resp_commands(&actual_resp).into_iter().collect();
 
     assert_eq!(actual_commands, expected_commands);
-    assert!(false); // Temporary debug - force output even on success
+    assert!(
+        false,
+        "SUCCESS: Temporary debug - force output even on success"
+    );
 }
 
 #[rstest]
