@@ -6,13 +6,8 @@ use rstest::rstest;
 use std::fs;
 use std::fs::File;
 use std::io::BufReader;
-use std::os::unix::fs::MetadataExt;
 use std::path::Path;
 use std::path::PathBuf;
-use tempfile::tempdir;
-use tempfile::TempDir;
-use testcontainers::core::ExecCommand;
-use testcontainers::core::Mount;
 use testcontainers::ContainerAsync;
 use testcontainers_modules::{
     redis::Redis, testcontainers::runners::AsyncRunner, testcontainers::ImageExt,
@@ -86,48 +81,19 @@ fn test_dump_matches_expected(#[files("tests/dumps/*.rdb")] path: PathBuf, #[cas
     );
 }
 
-async fn redis_client(
-    major_version: u8,
-    minor_version: u8,
-) -> (Client, TempDir, ContainerAsync<Redis>) {
-    let tmp_dir = tempdir().unwrap();
+async fn redis_client(major_version: u8, minor_version: u8) -> (Client, ContainerAsync<Redis>) {
     let container = Redis::default()
         .with_tag(format!("{}.{}-alpine", major_version, minor_version))
-        .with_mount(Mount::bind_mount(
-            tmp_dir.path().display().to_string(),
-            "/data",
-        ))
-        .with_cmd(vec!["/bin/sh", "-c", "redis-server --user 1001:128"])
-        .with_env_var("REDIS_USER", "1001:121") // Tell Redis to run as our test user
         .start()
         .await
         .expect("Failed to start Redis container");
-
-    // DEBUG SECTION, remove after debugging
-    let mut debug_cmd = container
-        .exec(ExecCommand::new(["id", "-u"]))
-        .await
-        .unwrap();
-    println!(
-        "Container running as: {}",
-        String::from_utf8_lossy(&debug_cmd.stdout_to_vec().await.unwrap())
-    );
 
     let host_ip = container.get_host().await.unwrap();
     let host_port = container.get_host_port_ipv4(6379).await.unwrap();
     let url = format!("redis://{}:{}", host_ip, host_port);
     let client = Client::open(url).expect("Failed to create Redis client");
 
-    // DEBUG SECTION, remove after debugging
-    let mut mount_debug = container
-        .exec(ExecCommand::new(["/bin/sh", "-c", "mount | grep data"]))
-        .await
-        .unwrap();
-    println!(
-        "Mount info: {}",
-        String::from_utf8_lossy(&mount_debug.stdout_to_vec().await.unwrap())
-    );
-    (client, tmp_dir, container)
+    (client, container)
 }
 
 fn to_resp_format(command: &str, args: &[&str]) -> String {
@@ -190,12 +156,6 @@ fn split_resp_commands(resp: &str) -> Vec<String> {
     commands
 }
 
-#[link(name = "c")]
-unsafe extern "C" {
-    unsafe fn geteuid() -> u32;
-    unsafe fn getegid() -> u32;
-}
-
 #[rstest]
 #[case::redis_6_2(6, 2)]
 #[case::redis_7_0(7, 0)]
@@ -203,9 +163,7 @@ unsafe extern "C" {
 #[case::redis_7_4(7, 4)]
 #[tokio::test]
 async fn test_redis_protocol_reproducibility(#[case] major_version: u8, #[case] minor_version: u8) {
-    use testcontainers::core::ExecCommand;
-
-    let (client, tmp_dir, container) = redis_client(major_version, minor_version).await;
+    let (client, container) = redis_client(major_version, minor_version).await;
     let mut conn = client.get_connection().unwrap();
 
     let commands = vec![
@@ -231,88 +189,24 @@ async fn test_redis_protocol_reproducibility(#[case] major_version: u8, #[case] 
 
     let expected_resp = execute_commands(&mut conn, &commands).await;
     redis::cmd("SAVE").exec(&mut conn).unwrap();
-
-    // Give Redis a moment to finish writing
     tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
-    let rdb_file = Path::new(&tmp_dir.path()).join("dump.rdb");
+    let container_id = container.id();
+    let temp_file = tempfile::NamedTempFile::new().unwrap();
 
-    // DEBUG SECTION, remove after debugging
-    // After SAVE, before the chmod/chown attempts:
-    let mut stat_cmd_before = container
-        .exec(ExecCommand::new([
-            "stat",
-            "-c",
-            "'%A %U %G'",
-            "/data/dump.rdb",
-        ]))
-        .await
-        .unwrap();
+    let status = std::process::Command::new("docker")
+        .args([
+            "cp",
+            "-q",
+            &format!("{}:/data/dump.rdb", container_id),
+            temp_file.path().to_str().unwrap(),
+        ])
+        .status()
+        .expect("Failed to execute docker cp");
 
-    // Try chmod first, check result
-    let chmod_result = container
-        .exec(ExecCommand::new(["chmod", "644", "/data/dump.rdb"]))
-        .await;
-    println!("chmod ok: {:?}", chmod_result.is_ok());
+    assert!(status.success(), "docker cp command failed");
 
-    // Check intermediate state
-    let mut stat_cmd_after_chmod = container
-        .exec(ExecCommand::new([
-            "stat",
-            "-c",
-            "'%A %U %G'",
-            "/data/dump.rdb",
-        ]))
-        .await
-        .unwrap();
-
-
-    // Try chown, check result
-    let chown_result = container
-        .exec(ExecCommand::new(["chown", "1001:121", "/data/dump.rdb"]))
-        .await;
-    println!("chown ok: {:?}", chown_result.is_ok());
-
-    // Final state check
-    let mut stat_cmd_after_chown = container
-        .exec(ExecCommand::new([
-            "stat",
-            "-c",
-            "'%A %U %G'",
-            "/data/dump.rdb",
-        ]))
-        .await
-        .unwrap();
-
-    
-    println!(
-        "\nFile stats before changes: {}",
-        String::from_utf8_lossy(&stat_cmd_before.stdout_to_vec().await.unwrap()).trim().to_string()
-    );
-    println!(
-        "File stats after chmod:    {}",
-        String::from_utf8_lossy(&stat_cmd_after_chmod.stdout_to_vec().await.unwrap()).trim().to_string()
-    );
-    println!(
-        "File stats after chown:    {}",
-        String::from_utf8_lossy(&stat_cmd_after_chown.stdout_to_vec().await.unwrap()).trim().to_string()
-    );
-
-    let metadata = rdb_file.metadata().unwrap();
-    let mode = metadata.mode() & 0o777; // Apply mask to get just permission bits
-    println!(
-        "File stats outside:        '-{} {:?} {:?}'\n",
-        format_mode(mode),
-        metadata.uid(),
-        metadata.gid()
-    );
-
-    println!(
-        "Tests running as: {}\n",
-        unsafe { geteuid() },
-    );
-    let actual_resp = parse_rdb_to_resp(&rdb_file);
-    // DEBUG SECTION over
+    let actual_resp = parse_rdb_to_resp(temp_file.path());
 
     let expected_commands: std::collections::HashSet<_> =
         split_resp_commands(&expected_resp).into_iter().collect();
@@ -320,12 +214,6 @@ async fn test_redis_protocol_reproducibility(#[case] major_version: u8, #[case] 
         split_resp_commands(&actual_resp).into_iter().collect();
 
     assert_eq!(actual_commands, expected_commands);
-    
-    // REMOVE this after debugging
-    assert!(
-        false,
-        "SUCCESS: Temporary debug - force output even on success"
-    );
 }
 
 #[rstest]
@@ -348,20 +236,4 @@ fn test_cli_commands_succeed(
     }
 
     cmd.arg(&path).assert().success();
-}
-
-fn format_mode(mode: u32) -> String {
-    let user = [(mode >> 6) & 0o7];
-    let group = [(mode >> 3) & 0o7];
-    let other = [mode & 0o7];
-
-    let convert = |bits: [u32; 1]| {
-        let mut s = String::with_capacity(3);
-        s.push(if bits[0] & 0o4 != 0 { 'r' } else { '-' });
-        s.push(if bits[0] & 0o2 != 0 { 'w' } else { '-' });
-        s.push(if bits[0] & 0o1 != 0 { 'x' } else { '-' });
-        s
-    };
-
-    format!("{}{}{}", convert(user), convert(group), convert(other))
 }
