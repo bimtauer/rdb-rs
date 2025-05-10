@@ -61,8 +61,10 @@ impl Filter for Simple {
         match self.keys.clone() {
             None => true,
             Some(re) => {
-                let key = unsafe { str::from_utf8_unchecked(key) };
-                re.is_match(key)
+                match str::from_utf8(key) {
+                    Ok(key_str) => re.is_match(key_str),
+                    Err(_) => false
+                }
             }
         }
     }
