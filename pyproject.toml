@@ -1,30 +1,47 @@
 [project]
 name = "rdb-py"
 version = "0.3.0"
-description = "Python wrapper around the fast and efficient RDB parsing utility"
+description = "Fast Redis RDB dump file parser, powered by Rust"
 readme = "README.md"
-requires-python = ">=3.10"
-dependencies = [
-    "cffi==1.17.1",
-    "maturin>=1.8.4",
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [
+    { name = "Tim Bauer", email = "timderbauer@gmail.com" },
+    { name = "Jan-Erik Rediger", email = "badboy@fnordig.de" },
 ]
+keywords = ["redis", "rdb", "parser", "dump"]
+requires-python = ">=3.10"
+dependencies = []
 classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
     "Programming Language :: Rust",
+    "Programming Language :: Python :: 3",
     "Programming Language :: Python :: Implementation :: CPython",
-    "Programming Language :: Python :: Implementation :: PyPy",
+    "Topic :: Database",
+    "Typing :: Typed",
 ]
 
-[project.optional-dependencies]
-test = [
-    "pytest>=7.0.0",
+[project.urls]
+Homepage = "https://github.com/bimtauer/rdb-rs"
+Documentation = "https://github.com/bimtauer/rdb-rs#python"
+Issues = "https://github.com/bimtauer/rdb-rs/issues"
+Changelog = "https://github.com/bimtauer/rdb-rs/blob/master/CHANGELOG.md"
+
+[dependency-groups]
+dev = [
+    "maturin>=1.9,<2",
+    "pytest>=8",
 ]
 
 [build-system]
-requires = ["maturin>=1,<2"]
+requires = ["maturin>=1.9,<2"]
 build-backend = "maturin"
 
 [tool.maturin]
 features = ["python"]
+module-name = "rdb"
 
 [tool.pytest.ini_options]
 testpaths = ["tests/python"]

@@ -10,7 +10,7 @@ use std::path::Path;
 use std::path::PathBuf;
 use testcontainers::ContainerAsync;
 use testcontainers_modules::{
-    redis::Redis, testcontainers::runners::AsyncRunner, testcontainers::ImageExt,
+    redis::Redis, testcontainers::ImageExt, testcontainers::runners::AsyncRunner,
 };
 
 fn run_dump_test(input: PathBuf, format: &str) -> String {

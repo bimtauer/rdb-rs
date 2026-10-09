@@ -96,7 +96,7 @@ pub fn read_quicklist_2<R: Read>(
                 return Err(RdbError::ParsingError {
                     context: "read_quicklist_2",
                     message: format!("Unknown encoding value: {}", container_type),
-                })
+                });
             }
         }
     }

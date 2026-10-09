@@ -208,14 +208,12 @@ impl PyRdbDecoder {
         slf
     }
 
-    fn __next__(mut slf: PyRefMut<'_, Self>) -> PyResult<Option<PyObject>> {
+    fn __next__<'py>(
+        mut slf: PyRefMut<'py, Self>,
+    ) -> PyResult<Option<Bound<'py, pyo3::types::PyDict>>> {
+        let py = slf.py();
         match slf.decoder.next() {
-            Some(Ok(value)) => Python::with_gil(|py| {
-                value
-                    .into_pyobject(py)
-                    .map(|obj| Some(obj.into()))
-                    .map_err(|e| PyValueError::new_err(format!("Conversion error: {}", e)))
-            }),
+            Some(Ok(value)) => value.into_pyobject(py).map(Some),
             Some(Err(e)) => Err(PyValueError::new_err(format!("Parsing error: {}", e))),
             None => Ok(None),
         }

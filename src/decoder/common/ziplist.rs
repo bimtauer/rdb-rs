@@ -36,7 +36,7 @@ fn read_ziplist_entry<R: Read>(input: &mut R) -> RdbResult<ZiplistEntry> {
             Ok(_) => {
                 return Err(RdbError::MissingValue(
                     "4 bytes to skip after ziplist length",
-                ))
+                ));
             }
             Err(e) => return Err(RdbError::Io(e)),
         };

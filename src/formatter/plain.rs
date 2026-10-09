@@ -2,7 +2,6 @@
 use super::write_str;
 use crate::formatter::Formatter;
 use indexmap::IndexMap;
-use rustc_serialize::hex::ToHex;
 use std::io;
 use std::io::Write;
 use std::path::PathBuf;
@@ -112,8 +111,9 @@ impl Formatter for Plain {
 
     fn checksum(&mut self, checksum: &[u8]) {
         if !checksum.is_empty() {
+            let hex: String = checksum.iter().map(|b| format!("{b:02x}")).collect();
             write_str(&mut self.out, "checksum ");
-            write_str(&mut self.out, &checksum.to_hex());
+            write_str(&mut self.out, &hex);
             write_str(&mut self.out, "\n");
         }
     }

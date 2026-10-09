@@ -137,7 +137,7 @@ pub(crate) fn process_next_operation<R: Read, F: Filter>(
     let next_op = match input.read_u8() {
         Ok(op) => op,
         Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
-            return Ok(RdbValue::Checksum(vec![]))
+            return Ok(RdbValue::Checksum(vec![]));
         }
         Err(e) => return Err(e.into()),
     };

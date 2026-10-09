@@ -2,7 +2,6 @@
 use super::write_str;
 use crate::formatter::Formatter;
 use indexmap::IndexMap;
-use rustc_serialize::json;
 use std::io;
 use std::io::Write;
 use std::path::PathBuf;
@@ -64,23 +63,44 @@ impl JSON {
     }
 }
 
+/// Encode `value` as a JSON string literal.
+///
+/// Valid UTF-8 is emitted as-is apart from the mandatory escapes. Bytes of
+/// invalid UTF-8 input that are not printable ASCII are emitted as `\u00XX`.
 fn encode_to_ascii(value: &[u8]) -> String {
+    let mut out = String::with_capacity(value.len() + 2);
+    out.push('"');
     match str::from_utf8(value) {
-        Ok(s) => json::encode(&s).unwrap(),
-        Err(_) => {
-            let s: String = value
-                .iter()
-                .map(|&b| {
-                    if (32..127).contains(&b) {
-                        // ASCII printable characters
-                        (b as char).to_string()
-                    } else {
-                        format!("\\u{:04x}", b as u16)
-                    }
-                })
-                .collect();
-            format!("\"{}\"", s)
+        Ok(s) => {
+            for c in s.chars() {
+                push_escaped(&mut out, c);
+            }
         }
+        Err(_) => {
+            for &b in value {
+                if (32..127).contains(&b) {
+                    push_escaped(&mut out, b as char);
+                } else {
+                    out.push_str(&format!("\\u{:04x}", b));
+                }
+            }
+        }
+    }
+    out.push('"');
+    out
+}
+
+fn push_escaped(out: &mut String, c: char) {
+    match c {
+        '"' => out.push_str("\\\""),
+        '\\' => out.push_str("\\\\"),
+        '\u{08}' => out.push_str("\\b"),
+        '\t' => out.push_str("\\t"),
+        '\n' => out.push_str("\\n"),
+        '\u{0c}' => out.push_str("\\f"),
+        '\r' => out.push_str("\\r"),
+        '\u{00}'..='\u{1f}' | '\u{7f}' => out.push_str(&format!("\\u{:04x}", c as u32)),
+        c => out.push(c),
     }
 }
 
