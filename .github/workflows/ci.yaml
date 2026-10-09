@@ -1,40 +1,68 @@
-name: Cargo Build & Test
+name: Rust
 
 on:
   push:
+    branches:
+      - master
+    tags:
+      - '*'
   pull_request:
+  workflow_dispatch:
 
-env: 
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build_and_test:
-    name: Rust project - latest
+  test:
+    name: test (${{ matrix.toolchain }})
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         toolchain:
           - stable
           - beta
           - nightly
     steps:
-      - uses: actions/checkout@v4
-      - name: setup toolchain
-        run: rustup update ${{ matrix.toolchain }} && rustup default ${{ matrix.toolchain }}
-
-      - name: Cache cargo
-        uses: Swatinem/rust-cache@v2
-      
-      - name: cargo build
-        run: cargo build --verbose
-      
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ matrix.toolchain }}
+      - uses: Swatinem/rust-cache@v2
+      # Includes the Redis container matrix (testcontainers, Docker is
+      # available on GitHub-hosted Ubuntu runners).
       - name: cargo test
-        run: cargo test --verbose
+        run: cargo test --locked
 
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
       - name: Check formatting
-        if: matrix.toolchain == 'stable'
         run: cargo fmt --all -- --check
-
       - name: Clippy
-        if: matrix.toolchain == 'stable'
-        run: cargo clippy --all --all-features --tests -- -D warnings
+        run: cargo clippy --locked --all-targets --all-features -- -D warnings
+      - name: Docs
+        run: cargo doc --locked --no-deps
+        env:
+          RUSTDOCFLAGS: -D warnings
+
+  msrv:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@1.87
+      - uses: Swatinem/rust-cache@v2
+      - name: cargo check
+        run: cargo check --locked --lib --bins

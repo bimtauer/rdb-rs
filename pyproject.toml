@@ -43,6 +43,10 @@ build-backend = "maturin"
 features = ["python"]
 module-name = "rdb"
 
+[tool.uv]
+# Rebuild the extension when Rust sources change (uv caches builds otherwise).
+cache-keys = [{ file = "pyproject.toml" }, { file = "Cargo.toml" }, { file = "Cargo.lock" }, { file = "src/**/*.rs" }]
+
 [tool.pytest.ini_options]
 testpaths = ["tests/python"]
 python_files = ["test_*.py"]
