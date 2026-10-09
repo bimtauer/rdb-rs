@@ -1,75 +1,103 @@
-//! rdb - Parse, analyze and dump RDB files
+//! Parse Redis RDB dump files.
 //!
-//! A RDB file is a binary representation of the in-memory data of Redis.
-//! This binary file is sufficient to completely restore Redis’ state.
+//! An RDB file is the binary snapshot Redis writes with `SAVE`/`BGSAVE`. This
+//! crate reads RDB versions 1 to 13 (Redis up to 8.6) and either hands you the
+//! decoded items or renders them through a [`Formatter`].
 //!
-//! This library provides the methods to parse and analyze a RDB file
-//! and to reformat and dump it in another format such as JSON or
-//! RESP, the Redis Serialization.
-//!
-//! You can depend on this library via Cargo:
-//!
-//! ```ini
+//! ```toml
 //! [dependencies]
-//! rdb = "*"
+//! rdb = "0.3"
 //! ```
 //!
-//! # Basic operation
+//! # Iterating over a dump
 //!
-//! rdb-rs exposes just one important method: `parse`.
-//! This methods takes care of reading the RDB from a stream,
-//! parsing the containted data and calling the provided formatter with already-parsed values.
+//! [`RdbDecoder`] validates the header and then yields one [`RdbValue`] per
+//! database switch, metadata item or key:
 //!
-//! ```rust,no_run
-//! # #![allow(unstable)]
-//! # use std::io::BufReader;
-//! # use std::fs::File;
-//! # use std::path::Path;
-//! let file = File::open(&Path::new("dump.rdb")).unwrap();
-//! let reader = BufReader::new(file);
-//! rdb::parse(reader, rdb::formatter::JSON::new(None), rdb::filter::Simple::new());
+//! ```
+//! use std::fs::File;
+//! use std::io::BufReader;
+//! use rdb::{RdbDecoder, RdbValue, filter::Simple};
+//!
+//! # fn main() -> Result<(), rdb::RdbError> {
+//! let file = BufReader::new(File::open("tests/dumps/redis_8_6_all_types.rdb")?);
+//! let decoder = RdbDecoder::new(file, Simple::new())?;
+//! assert_eq!(decoder.version(), 13);
+//!
+//! for item in decoder {
+//!     match item? {
+//!         RdbValue::String { key, value, expiry } => {
+//!             println!("{:?} = {:?} (expires at {:?})", key, value, expiry)
+//!         }
+//!         RdbValue::Hash { key, values, .. } => println!("{:?}: {} fields", key, values.len()),
+//!         _ => {}
+//!     }
+//! }
+//! # Ok(())
+//! # }
 //! ```
 //!
-//! # Formatter
+//! Wrap files in a [`BufReader`](std::io::BufReader): the decoder issues many
+//! small reads.
 //!
-//! rdb-rs brings 4 pre-defined formatters, which can be used:
+//! # Formatting a dump
 //!
-//! * `PlainFormatter`: Just plain output for testing
-//! * `JSONFormatter`: JSON-encoded output
-//! * `NilFormatter`: Surpresses all output
-//! * `ProtocolFormatter`: Formats the data in [RESP](http://redis.io/topics/protocol),
-//!   the Redis Serialization Protocol
+//! [`parse`] drives a [`Formatter`] over all items. Four formatters are
+//! included in [`formatter`]:
 //!
-//! These formatters adhere to the `RdbParseFormatter` trait
-//! and supply a method for each possible datatype or opcode.
-//! Its up to the formatter to correctly handle all provided data such as
-//! lists, sets, hashes, expires and metadata.
+//! * [`formatter::JSON`] writes one JSON object per database
+//! * [`formatter::Plain`] writes one line per value, for grepping
+//! * [`formatter::Protocol`] writes [RESP](https://redis.io/docs/latest/develop/reference/protocol-spec/)
+//!   commands that recreate the data (`SET`, `HSET`, ..., `PEXPIREAT`)
+//! * [`formatter::Nil`] writes nothing, useful to validate a file
 //!
-//! # Command-line
+//! Each takes an optional output path and writes to stdout otherwise.
 //!
-//! rdb-rs brings a Command Line application as well.
+//! ```
+//! use std::fs::File;
+//! use std::io::BufReader;
+//! use rdb::{filter::Simple, formatter::Nil};
 //!
-//! This application will take a RDB file as input and format it in the specified format (JSON by
-//! default).
+//! # fn main() -> Result<(), rdb::RdbError> {
+//! let file = BufReader::new(File::open("tests/dumps/redis_8_6_all_types.rdb")?);
+//! rdb::parse(file, Nil::new(None), Simple::new())?;
+//! # Ok(())
+//! # }
+//! ```
 //!
-//! Example:
+//! # Filtering
 //!
-//! ```shell,no_compile
+//! [`filter::Simple`] restricts output to databases, value types and keys
+//! matching a regular expression. Filtered keys are skipped without being
+//! decoded. Implement [`Filter`] for custom rules.
+//!
+//! ```
+//! use rdb::{Type, filter::Simple};
+//! use regex::Regex;
+//!
+//! let mut filter = Simple::new();
+//! filter.add_database(0);
+//! filter.add_type(Type::Hash);
+//! filter.add_keys(Regex::new("^user:").unwrap());
+//! ```
+//!
+//! # What is not decoded
+//!
+//! * Streams and module values (e.g. RedisJSON) are skipped: the file parses,
+//!   but these keys do not appear in the output.
+//! * Per-field TTLs of hashes (Redis 7.4+) are read but not reported; the hash
+//!   fields and values are.
+//! * Lua function libraries, LRU/LFU information and cluster slot info are
+//!   skipped.
+//!
+//! # Command line
+//!
+//! The crate also builds the `rdb` binary (`cargo install rdb`):
+//!
+//! ```text
 //! $ rdb --format json dump.rdb
 //! [{"key":"value"}]
-//! $ rdb --format protocol dump.rdb
-//! *2
-//! $6
-//! SELECT
-//! $1
-//! 0
-//! *3
-//! $3
-//! SET
-//! $3
-//! key
-//! $5
-//! value
+//! $ rdb --format protocol --type hash --keys '^user:' dump.rdb
 //! ```
 
 #[cfg(feature = "python")]
@@ -79,8 +107,7 @@ use pyo3::prelude::*;
 
 use std::io::Read;
 
-#[doc(hidden)]
-pub use types::{RdbError, RdbOk, RdbResult, Type};
+pub use types::{RdbError, RdbOk, RdbResult, RdbValue, Type};
 
 pub mod constants;
 pub mod decoder;
@@ -92,7 +119,8 @@ pub use decoder::RdbDecoder;
 pub use filter::{Filter, Simple};
 pub use formatter::{Formatter, FormatterType};
 
-// Main entry point for parsing RDB files
+/// Runs a [`Formatter`] over the items of an RDB file. Usually created
+/// through [`parse`]; use [`RdbParser::builder`] to assemble it step by step.
 pub struct RdbParser<R: Read, L: Filter, F: Formatter> {
     decoder: RdbDecoder<R, L>,
     formatter: Option<F>,
@@ -108,6 +136,8 @@ impl<R: Read, L: Filter, F: Formatter> RdbParser<R, L, F> {
     }
 }
 
+/// Builder for [`RdbParser`]. A reader is required; the filter defaults to
+/// accepting everything.
 #[derive(Default)]
 pub struct RdbParserBuilder<R: Read, L: Filter, F: Formatter> {
     reader: Option<R>,
@@ -147,6 +177,7 @@ impl<R: Read, L: Filter + Default, F: Formatter> RdbParserBuilder<R, L, F> {
 }
 
 impl<R: Read, L: Filter, F: Formatter> RdbParser<R, L, F> {
+    /// Feed all items to the formatter. Stops at the first error.
     pub fn parse(self) -> RdbResult<()> {
         if let Some(mut formatter) = self.formatter {
             formatter.start_rdb();
@@ -159,6 +190,8 @@ impl<R: Read, L: Filter, F: Formatter> RdbParser<R, L, F> {
     }
 }
 
+/// Read an RDB file from `reader` and render every item accepted by `filter`
+/// through `formatter`.
 pub fn parse<R: Read, L: Filter + Default, F: Formatter>(
     reader: R,
     formatter: F,

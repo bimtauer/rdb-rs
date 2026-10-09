@@ -18,6 +18,8 @@ pub fn write_str<W: Write>(out: &mut W, data: &str) {
     out.write_all(data.as_bytes()).unwrap();
 }
 
+/// Renders RDB items. [`format`](Formatter::format) dispatches each
+/// [`RdbValue`] to the matching method; all methods default to no-ops.
 #[allow(unused_variables)]
 pub trait Formatter {
     fn start_rdb(&mut self) {}

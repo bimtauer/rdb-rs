@@ -1,10 +1,13 @@
 use crate::types::Type;
 use regex::Regex;
 
+/// Decides which keys are decoded. Keys that do not match are skipped
+/// without decoding their value. All methods default to accepting everything.
 pub trait Filter {
     fn matches_db(&self, _db: u32) -> bool {
         true
     }
+    /// `enc_type` is the on-disk value type byte; see [`Type::from_encoding`].
     fn matches_type(&self, _enc_type: u8) -> bool {
         true
     }
@@ -13,6 +16,8 @@ pub trait Filter {
     }
 }
 
+/// Filter by database, logical [`Type`] and key regex. Each criterion is
+/// ignored while empty; set criteria must all match.
 #[derive(Default)]
 pub struct Simple {
     databases: Vec<u32>,
@@ -25,14 +30,17 @@ impl Simple {
         Simple::default()
     }
 
+    /// Accept keys in `db`. Can be called multiple times.
     pub fn add_database(&mut self, db: u32) {
         self.databases.push(db);
     }
 
+    /// Accept keys of type `typ`. Can be called multiple times.
     pub fn add_type(&mut self, typ: Type) {
         self.types.push(typ);
     }
 
+    /// Accept keys matching `re` (keys are matched as lossy UTF-8). Replaces a previous regex.
     pub fn add_keys(&mut self, re: Regex) {
         self.keys = Some(re);
     }

@@ -42,6 +42,7 @@ build-backend = "maturin"
 [tool.maturin]
 features = ["python"]
 module-name = "rdb"
+include = [{ path = "rdb.pyi", format = "sdist" }]
 
 [tool.uv]
 # Rebuild the extension when Rust sources change (uv caches builds otherwise).

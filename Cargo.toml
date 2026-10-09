@@ -5,19 +5,21 @@ rust-version = "1.87"
 version = "0.3.0"
 authors = ["Jan-Erik Rediger <badboy@fnordig.de>", "Tim Bauer <timderbauer@gmail.com>"]
 keywords = ["redis", "database", "rdb", "parser"]
-description = "Fast and efficient RDB parsing utility"
+categories = ["database", "parser-implementations", "command-line-utilities"]
+description = "Fast parser for Redis RDB dump files: library, CLI and Python bindings"
 readme = "README.md"
 license = "MIT"
 documentation = "https://docs.rs/rdb/"
 repository = "https://github.com/bimtauer/rdb-rs"
 
 include = [
-  "Cargo.toml",
-  "README*",
-  "LICENSE*",
-  "src/**/*",
-  "tests/**/*",
-  "examples/**/*",
+  "/Cargo.toml",
+  "/README.md",
+  "/LICENSE",
+  "/CHANGELOG.md",
+  "/src/**/*.rs",
+  "/tests/*.rs",
+  "/tests/dumps/**/*",
 ]
 
 [[bin]]
