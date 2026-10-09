@@ -43,7 +43,7 @@ impl Filter for Simple {
         if self.databases.is_empty() {
             true
         } else {
-            self.databases.iter().any(|&x| x == db)
+            self.databases.contains(&db)
         }
     }
 
@@ -52,12 +52,11 @@ impl Filter for Simple {
             return true;
         }
 
-        let typ = Type::from_encoding(enc_type).unwrap();
-        self.types.iter().any(|x| *x == typ)
+        Type::from_encoding(enc_type).is_ok_and(|typ| self.types.contains(&typ))
     }
 
     fn matches_key(&self, key: &[u8]) -> bool {
-        match self.keys.clone() {
+        match &self.keys {
             None => true,
             Some(re) => {
                 let key = String::from_utf8_lossy(key);

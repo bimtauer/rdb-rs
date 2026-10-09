@@ -96,7 +96,7 @@ pub fn read_sorted_set_listpack<R: Read>(
     let size = read_list_pack_length(buf, &mut cursor);
     reader.set_position(cursor as u64);
 
-    assert!(size % 2 == 0);
+    assert!(size.is_multiple_of(2));
     let num_entries = size / 2;
 
     for _ in 0..num_entries {

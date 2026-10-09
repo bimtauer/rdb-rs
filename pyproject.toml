@@ -5,8 +5,8 @@ description = "Python wrapper around the fast and efficient RDB parsing utility"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "maturin>=1.8.0",
-    "cffi==1.17.1"
+    "cffi==1.17.1",
+    "maturin>=1.8.4",
 ]
 classifiers = [
     "Programming Language :: Rust",
@@ -14,6 +14,10 @@ classifiers = [
     "Programming Language :: Python :: Implementation :: PyPy",
 ]
 
+[project.optional-dependencies]
+test = [
+    "pytest>=7.0.0",
+]
 
 [build-system]
 requires = ["maturin>=1,<2"]
@@ -21,3 +25,7 @@ build-backend = "maturin"
 
 [tool.maturin]
 features = ["python"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests/python"]
+python_files = ["test_*.py"]

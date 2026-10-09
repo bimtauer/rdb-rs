@@ -3,7 +3,7 @@
 #
 #    maturin generate-ci github --platform linux --platform windows --platform macos
 #
-name: CI
+name: Python Publish
 
 on:
   push:

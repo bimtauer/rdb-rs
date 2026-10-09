@@ -73,7 +73,7 @@
 //! ```
 
 #[cfg(feature = "python")]
-use pyo3::exceptions::PyValueError;
+use pyo3::exceptions::{PyFileNotFoundError, PyValueError};
 #[cfg(feature = "python")]
 use pyo3::prelude::*;
 
@@ -184,7 +184,7 @@ impl PyRdbDecoder {
     #[new]
     pub fn new(path: &str) -> PyResult<Self> {
         let file = std::fs::File::open(path)
-            .map_err(|e| PyValueError::new_err(format!("Failed to open file: {}", e)))?;
+            .map_err(|e| PyFileNotFoundError::new_err(format!("Failed to open file: {}", e)))?;
 
         let mut filter = Simple::new();
 
@@ -199,7 +199,7 @@ impl PyRdbDecoder {
         }
 
         let decoder = RdbDecoder::new(file, filter)
-            .map_err(|e| PyValueError::new_err(format!("Failed to create decoder: {}", e)))?;
+            .map_err(|e| PyValueError::new_err(format!("Not a valid RDB file: {}", e)))?;
 
         Ok(PyRdbDecoder { decoder })
     }
