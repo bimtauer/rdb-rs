@@ -96,6 +96,6 @@ fn read_ziplist_entry<R: Read>(input: &mut R) -> RdbResult<ZiplistEntry> {
     };
 
     // 3. Read value
-    let rawval = read_exact(input, length as usize)?;
+    let rawval = read_exact(input, length)?;
     Ok(ZiplistEntry::String(rawval))
 }

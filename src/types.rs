@@ -17,6 +17,12 @@ pub enum RdbError {
     MissingValue(&'static str),
     #[error("Unknown encoding type: {0}")]
     UnknownEncoding(u8),
+    #[error("Not an RDB file: {0}")]
+    InvalidHeader(&'static str),
+    #[error("Unsupported RDB version {0} (supported: 1-13)")]
+    UnsupportedVersion(u32),
+    #[error("Unsupported format: {0}")]
+    Unsupported(&'static str),
     #[error("Parsing error in {context}: {message}")]
     ParsingError {
         context: &'static str,
@@ -45,7 +51,11 @@ impl Type {
             encoding_type::HASH
             | encoding_type::HASH_ZIPMAP
             | encoding_type::HASH_ZIPLIST
-            | encoding_type::HASH_LIST_PACK => Ok(Type::Hash),
+            | encoding_type::HASH_LIST_PACK
+            | encoding_type::HASH_METADATA_PRE_GA
+            | encoding_type::HASH_LIST_PACK_EX_PRE_GA
+            | encoding_type::HASH_METADATA
+            | encoding_type::HASH_LIST_PACK_EX => Ok(Type::Hash),
             encoding_type::LIST
             | encoding_type::LIST_ZIPLIST
             | encoding_type::LIST_QUICKLIST
@@ -59,26 +69,12 @@ impl Type {
             | encoding_type::ZSET_LIST_PACK => Ok(Type::SortedSet),
             encoding_type::STREAM_LIST_PACKS
             | encoding_type::STREAM_LIST_PACKS_2
-            | encoding_type::STREAM_LIST_PACKS_3 => Ok(Type::Stream),
+            | encoding_type::STREAM_LIST_PACKS_3
+            | encoding_type::STREAM_LIST_PACKS_4 => Ok(Type::Stream),
             encoding_type::MODULE | encoding_type::MODULE_2 => Ok(Type::Module),
             _ => Err(RdbError::UnknownEncoding(enc_type)),
         }
     }
-}
-
-#[derive(Debug, PartialEq)]
-pub enum EncodingType {
-    String,
-    LinkedList,
-    Hashtable,
-    Skiplist,
-    Intset(u64),
-    Ziplist(u64),
-    Zipmap(u64),
-    Quicklist,
-    Quicklist2,
-    ZSet2,
-    ListPack(u64),
 }
 
 #[derive(Debug)]

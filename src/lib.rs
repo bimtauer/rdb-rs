@@ -73,7 +73,7 @@
 //! ```
 
 #[cfg(feature = "python")]
-use pyo3::exceptions::{PyFileNotFoundError, PyValueError};
+use pyo3::exceptions::PyValueError;
 #[cfg(feature = "python")]
 use pyo3::prelude::*;
 
@@ -106,10 +106,6 @@ impl<R: Read, L: Filter, F: Formatter> RdbParser<R, L, F> {
             formatter: None,
         }
     }
-
-    //pub fn into_iter(self) -> RdbDecoder<R, L> {
-    //    self.decoder
-    //}
 }
 
 #[derive(Default)]
@@ -120,14 +116,18 @@ pub struct RdbParserBuilder<R: Read, L: Filter, F: Formatter> {
 }
 
 impl<R: Read, L: Filter + Default, F: Formatter> RdbParserBuilder<R, L, F> {
-    pub fn build(self) -> RdbParser<R, L, F> {
-        let reader = self.reader.unwrap();
+    /// Validate the RDB header and create the parser.
+    ///
+    /// Fails if no reader was set or the input is not a supported RDB file.
+    pub fn build(self) -> RdbResult<RdbParser<R, L, F>> {
+        let reader = self
+            .reader
+            .ok_or(RdbError::MissingValue("RdbParserBuilder::with_reader"))?;
         let filter = self.filter.unwrap_or_default();
-        let formatter = self.formatter;
-        RdbParser {
-            decoder: RdbDecoder::new(reader, filter).unwrap(),
-            formatter,
-        }
+        Ok(RdbParser {
+            decoder: RdbDecoder::new(reader, filter)?,
+            formatter: self.formatter,
+        })
     }
 
     pub fn with_reader(mut self, reader: R) -> Self {
@@ -168,40 +168,35 @@ pub fn parse<R: Read, L: Filter + Default, F: Formatter>(
         .with_reader(reader)
         .with_filter(filter)
         .with_formatter(formatter)
-        .build();
+        .build()?;
     parser.parse()
 }
 
+/// Python iterator over the items of an RDB file (exposed as `rdb.RdbDecoder`).
 #[cfg(feature = "python")]
 #[pyclass(name = "RdbDecoder")]
 pub struct PyRdbDecoder {
-    decoder: RdbDecoder<std::fs::File, Simple>,
+    decoder: RdbDecoder<std::io::BufReader<std::fs::File>, Simple>,
 }
 
 #[cfg(feature = "python")]
 #[pymethods]
 impl PyRdbDecoder {
     #[new]
-    pub fn new(path: &str) -> PyResult<Self> {
-        let file = std::fs::File::open(path)
-            .map_err(|e| PyFileNotFoundError::new_err(format!("Failed to open file: {}", e)))?;
-
-        let mut filter = Simple::new();
-
-        for t in [
-            Type::Hash,
-            Type::String,
-            Type::List,
-            Type::Set,
-            Type::SortedSet,
-        ] {
-            filter.add_type(t);
-        }
-
-        let decoder = RdbDecoder::new(file, filter)
+    pub fn new(path: std::path::PathBuf) -> PyResult<Self> {
+        // io::Error maps onto the matching OSError subclass
+        // (FileNotFoundError, PermissionError, IsADirectoryError, ...).
+        let file = std::fs::File::open(path)?;
+        let decoder = RdbDecoder::new(std::io::BufReader::new(file), Simple::new())
             .map_err(|e| PyValueError::new_err(format!("Not a valid RDB file: {}", e)))?;
 
         Ok(PyRdbDecoder { decoder })
+    }
+
+    /// RDB format version declared in the file header.
+    #[getter]
+    fn version(&self) -> u32 {
+        self.decoder.version()
     }
 
     fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
