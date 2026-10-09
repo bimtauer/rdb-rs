@@ -2,10 +2,6 @@
 
 ---
 
-**2024-03-29: THIS CODEBASE IS NOW MAINTAINED AT <https://github.com/bimtauer/rdb-rs>**
-
----
-
 See [changelog](CHANGELOG.md).
 
 Inspired and based on [redis-rdb-tools][].
