@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-14
+
 ### Added
  - RDB versions 10-13: Redis 7.0 up to 8.6 ([#8](https://github.com/bimtauer/rdb-rs/issues/8))
  - Hashes with field TTLs (Redis 7.4+) are decoded; the per-field TTLs are not reported

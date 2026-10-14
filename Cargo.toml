@@ -2,7 +2,7 @@
 name = "rdb"
 edition = "2024"
 rust-version = "1.87"
-version = "0.3.0"
+version = "0.4.0"
 authors = ["Jan-Erik Rediger <badboy@fnordig.de>", "Tim Bauer <timderbauer@gmail.com>"]
 keywords = ["redis", "database", "rdb", "parser"]
 categories = ["database", "parser-implementations", "command-line-utilities"]

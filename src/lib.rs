@@ -6,7 +6,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! rdb = "0.3"
+//! rdb = "0.4"
 //! ```
 //!
 //! # Iterating over a dump
