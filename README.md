@@ -64,7 +64,7 @@ $ rdb --format protocol dump.rdb | redis-cli --pipe   # replay into another serv
 
 ```toml
 [dependencies]
-rdb = "0.3"
+rdb = "0.4"
 ```
 
 ```rust
