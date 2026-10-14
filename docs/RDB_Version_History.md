@@ -5,6 +5,82 @@ This document tracks the changes made to the dump file format over time.
 
 An RDB file is forwards compatible. An older dump file format will always work with a newer version of Redis.
 
+Versions 8 to 13 below list the type and opcode constants added to `src/rdb.h` in each Redis release
+(compare e.g. [7.4.11](https://github.com/redis/redis/blob/7.4.11/src/rdb.h) and
+[8.6.7](https://github.com/redis/redis/blob/8.6.7/src/rdb.h)). Byte layouts are in `rdbLoadObject` in `src/rdb.c`.
+
+| RDB version | Written by Redis |
+|---|---|
+| 7 | 3.2 |
+| 8 | 4.0 |
+| 9 | 5.0, 6.0, 6.2 |
+| 10 | 7.0 |
+| 11 | 7.2 |
+| 12 | 7.4, 8.0, 8.2, 8.4 |
+| 13 | 8.6 |
+
+## Version 13
+
+Redis 8.6.
+
+* New opcode `KEY_META` (243). Optional per-key prefix written after any expiry/`IDLE`/`FREQ` prefix and directly
+  before the value type byte. Followed by a length-encoded class count; each class is a 4-byte class spec followed
+  by a module value opcode stream (see `MODULE_2`) terminated by `EOF` (0).
+* New type `STREAM_LISTPACKS_4` (26). Every stream saved by 8.6 uses it. Same as type 21, followed by the IDMP
+  (idempotent producer) section: duration, max entries, a list of producers with their idempotency ids, and the
+  `iids_added` / `iids_duplicates` counters.
+
+## Version 12
+
+Redis 7.4 (also written by 8.0 - 8.4).
+
+* Hash field expiration. Hashes with at least one field TTL use new types:
+    * `HASH_METADATA` (24): 8-byte little-endian minimum expiry (ms), then `len` triplets of
+      `<ttl:length> <field:string> <value:string>`. A TTL of 0 means none, otherwise it is relative:
+      `expire_at = ttl + min_expire - 1`.
+    * `HASH_LISTPACK_EX` (25): 8-byte minimum expiry, then a listpack of `field, value, ttl` triplets, where `ttl`
+      is an absolute Unix time in ms, or 0 for none.
+    * `HASH_METADATA_PRE_GA` (22) and `HASH_LISTPACK_EX_PRE_GA` (23) are the 7.4 release candidate variants
+      without the minimum expiry prefix (and with absolute TTLs for type 22).
+* New opcode `SLOT_INFO` (244), cluster mode only: three lengths (slot id, slot size, expires slot size).
+
+## Version 11
+
+Redis 7.2.
+
+* New type `SET_LISTPACK` (20): small sets stored as a listpack.
+* New type `STREAM_LISTPACKS_3` (21): consumers additionally store an 8-byte active time.
+* `FUNCTION` (246) renamed to `FUNCTION_PRE_GA` and `MODULE` (6) to `MODULE_PRE_GA`. Both are release-candidate
+  formats Redis itself refuses to load.
+
+## Version 10
+
+Redis 7.0. Ziplists are replaced by listpacks.
+
+* New types `HASH_LISTPACK` (16), `ZSET_LISTPACK` (17) and `LIST_QUICKLIST_2` (18, quicklist nodes are either a
+  plain string or a listpack).
+* New type `STREAM_LISTPACKS_2` (19): adds first id, max deleted entry id and entries added to the stream, and
+  entries read to each consumer group.
+* New opcode `FUNCTION2` (245): one string holding the code of a function library.
+
+## Version 9
+
+Redis 5.0 (also written by 6.0 and 6.2).
+
+* New type `STREAM_LISTPACKS` (15).
+* New opcodes `MODULE_AUX` (247, module auxiliary data), `IDLE` (248, LRU idle time in seconds) and
+  `FREQ` (249, one byte LFU counter). `IDLE` and `FREQ` are key prefixes like the expiry opcodes.
+
+## Version 8
+
+Redis 4.0.
+
+* 64-bit lengths: length byte `0x81` followed by an 8-byte big-endian integer (`0x80` is the 32-bit form).
+* New type `ZSET_2` (5): sorted set scores as 8-byte little-endian binary doubles instead of strings.
+* Module types `MODULE` (6) and `MODULE_2` (7). A `MODULE_2` value is a 64-bit module id followed by a stream of
+  `(opcode, payload)` pairs (`SINT`/`UINT`: length-encoded, `FLOAT`: 4 bytes, `DOUBLE`: 8 bytes, `STRING`: string)
+  terminated by opcode `EOF` (0), so it can be skipped without the module.
+
 ## Version 7
 
 Introduced 2014-01-08, integrated into Redis 2.9.x.

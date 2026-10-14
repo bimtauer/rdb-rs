@@ -1,10 +1,8 @@
-use super::common::utils::{read_blob, read_exact, read_length};
-use super::common::{read_list_pack_length, read_ziplist_entry_string, read_ziplist_metadata};
-use crate::decoder::common::read_list_pack_entry_as_string;
+use super::common::utils::{read_blob, read_exact, read_length, vec_for};
+use super::common::{read_list_pack, read_ziplist_entry_string, read_ziplist_metadata};
 use crate::types::{RdbError, RdbResult, RdbValue};
-use byteorder::ReadBytesExt;
+use byteorder::{LittleEndian, ReadBytesExt};
 use std::io::{Cursor, Read};
-use std::str;
 
 pub fn read_sorted_set<R: Read>(
     input: &mut R,
@@ -12,31 +10,17 @@ pub fn read_sorted_set<R: Read>(
     expiry: Option<u64>,
     is_zset2: bool,
 ) -> RdbResult<RdbValue> {
-    let mut set_items = read_length(input)?;
-    let mut values = Vec::with_capacity(set_items as usize);
+    let set_items = read_length(input)?;
+    let mut values = vec_for(set_items);
 
-    while set_items > 0 {
+    for _ in 0..set_items {
         let val = read_blob(input)?;
-
         let score = if is_zset2 {
-            // ZSET2 format uses binary encoding of float64
-            input.read_f64::<byteorder::LittleEndian>()?
+            input.read_f64::<LittleEndian>()?
         } else {
-            // Original format uses string representation
-            let score_length = input.read_u8()?;
-            match score_length {
-                253 => f64::NAN,
-                254 => f64::INFINITY,
-                255 => f64::NEG_INFINITY,
-                _ => {
-                    let tmp = read_exact(input, score_length as usize)?;
-                    String::from_utf8_lossy(&tmp).parse::<f64>().unwrap()
-                }
-            }
+            read_string_score(input)?
         };
-
         values.push((score, val));
-        set_items -= 1;
     }
 
     Ok(RdbValue::SortedSet {
@@ -44,6 +28,27 @@ pub fn read_sorted_set<R: Read>(
         values,
         expiry,
     })
+}
+
+/// Score of the original zset encoding: a length byte (253/254/255 for
+/// NaN/+inf/-inf) followed by the score as ASCII.
+pub(crate) fn read_string_score<R: Read>(input: &mut R) -> RdbResult<f64> {
+    match input.read_u8()? {
+        253 => Ok(f64::NAN),
+        254 => Ok(f64::INFINITY),
+        255 => Ok(f64::NEG_INFINITY),
+        len => parse_score(&read_exact(input, len as u64)?, "read_sorted_set"),
+    }
+}
+
+fn parse_score(raw: &[u8], context: &'static str) -> RdbResult<f64> {
+    std::str::from_utf8(raw)
+        .ok()
+        .and_then(|s| s.parse::<f64>().ok())
+        .ok_or_else(|| RdbError::ParsingError {
+            context,
+            message: format!("Failed to parse score: {:?}", String::from_utf8_lossy(raw)),
+        })
 }
 
 pub fn read_sorted_set_ziplist<R: Read>(
@@ -55,21 +60,24 @@ pub fn read_sorted_set_ziplist<R: Read>(
     let mut reader = Cursor::new(ziplist);
     let (_zlbytes, _zltail, zllen) = read_ziplist_metadata(&mut reader)?;
 
-    assert!(zllen % 2 == 0);
-    let zllen = zllen / 2;
-    let mut values = Vec::with_capacity(zllen as usize);
+    if !zllen.is_multiple_of(2) {
+        return Err(RdbError::ParsingError {
+            context: "read_sorted_set_ziplist",
+            message: format!("Odd number of ziplist entries: {}", zllen),
+        });
+    }
+    let mut values = Vec::with_capacity(zllen as usize / 2);
 
-    for _ in 0..zllen {
+    for _ in 0..zllen / 2 {
         let entry = read_ziplist_entry_string(&mut reader)?;
         let score = read_ziplist_entry_string(&mut reader)?;
-        let score = str::from_utf8(&score).unwrap().parse::<f64>().unwrap();
-        values.push((score, entry));
+        values.push((parse_score(&score, "read_sorted_set_ziplist")?, entry));
     }
 
     let last_byte = reader.read_u8()?;
     if last_byte != 0xFF {
         return Err(RdbError::ParsingError {
-            context: "read_sortedset_ziplist",
+            context: "read_sorted_set_ziplist",
             message: format!("Unknown encoding value: {}", last_byte),
         });
     }
@@ -86,35 +94,21 @@ pub fn read_sorted_set_listpack<R: Read>(
     key: &[u8],
     expiry: Option<u64>,
 ) -> RdbResult<RdbValue> {
-    let listpack = read_blob(input)?;
-    let mut reader = Cursor::new(&listpack);
-    let mut values = Vec::new();
-
-    // Read number of elements (size)
-    let buf = reader.get_ref();
-    let mut cursor = 0;
-    let size = read_list_pack_length(buf, &mut cursor);
-    reader.set_position(cursor as u64);
-
-    assert!(size % 2 == 0);
-    let num_entries = size / 2;
-
-    for _ in 0..num_entries {
-        let member = read_list_pack_entry_as_string(&mut reader)?;
-        let score_str = read_list_pack_entry_as_string(&mut reader)?;
-
-        let score = String::from_utf8_lossy(&score_str)
-            .parse::<f64>()
-            .map_err(|_| RdbError::ParsingError {
-                context: "read_sorted_set_listpack",
-                message: format!(
-                    "Failed to parse score: {:?}",
-                    String::from_utf8_lossy(&score_str)
-                ),
-            })?;
-
-        values.push((score, member));
+    let entries = read_list_pack(&read_blob(input)?)?;
+    if !entries.len().is_multiple_of(2) {
+        return Err(RdbError::ParsingError {
+            context: "read_sorted_set_listpack",
+            message: format!("Odd number of listpack entries: {}", entries.len()),
+        });
     }
+
+    let values = entries
+        .chunks_exact(2)
+        .map(|pair| {
+            let score = parse_score(&pair[1], "read_sorted_set_listpack")?;
+            Ok((score, pair[0].clone()))
+        })
+        .collect::<RdbResult<Vec<_>>>()?;
 
     Ok(RdbValue::SortedSet {
         key: key.to_vec(),

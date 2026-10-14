@@ -10,7 +10,7 @@ use std::path::Path;
 use std::path::PathBuf;
 use testcontainers::ContainerAsync;
 use testcontainers_modules::{
-    redis::Redis, testcontainers::runners::AsyncRunner, testcontainers::ImageExt,
+    redis::Redis, testcontainers::ImageExt, testcontainers::runners::AsyncRunner,
 };
 
 fn run_dump_test(input: PathBuf, format: &str) -> String {
@@ -156,11 +156,45 @@ fn split_resp_commands(resp: &str) -> Vec<String> {
     commands
 }
 
+/// Data the decoder walks over without reporting it: streams with consumer
+/// groups and pending entries (all versions), functions (7.0+) and hash field
+/// TTLs (7.4+, the hash itself is reported but the TTL is not).
+fn unreported_commands(
+    major_version: u8,
+    minor_version: u8,
+) -> Vec<(&'static str, Vec<&'static str>)> {
+    let mut commands = vec![
+        ("XADD", vec!["stream", "*", "field", "value"]),
+        ("XGROUP", vec!["CREATE", "stream", "group", "0"]),
+        (
+            "XREADGROUP",
+            vec!["GROUP", "group", "consumer", "STREAMS", "stream", ">"],
+        ),
+    ];
+    if major_version >= 7 {
+        commands.push((
+            "FUNCTION",
+            vec![
+                "LOAD",
+                "#!lua name=lib\nredis.register_function('noop', function() return 1 end)",
+            ],
+        ));
+    }
+    if (major_version, minor_version) >= (7, 4) {
+        commands.push(("HEXPIRE", vec!["hash", "99999", "FIELDS", "1", "name"]));
+    }
+    commands
+}
+
 #[rstest]
 #[case::redis_6_2(6, 2)]
 #[case::redis_7_0(7, 0)]
 #[case::redis_7_2(7, 2)]
 #[case::redis_7_4(7, 4)]
+#[case::redis_8_0(8, 0)]
+#[case::redis_8_2(8, 2)]
+#[case::redis_8_4(8, 4)]
+#[case::redis_8_6(8, 6)]
 #[tokio::test]
 async fn test_redis_protocol_reproducibility(#[case] major_version: u8, #[case] minor_version: u8) {
     let (client, container) = redis_client(major_version, minor_version).await;
@@ -183,11 +217,15 @@ async fn test_redis_protocol_reproducibility(#[case] major_version: u8, #[case] 
         ("RPUSH", vec!["list_strings", "Bella"]),
         ("RPUSH", vec!["list_strings", "Max"]),
         ("RPUSH", vec!["list_numbers", "1"]),
-        ("RPUSH", vec!["list_numbers", "2"]),
-        ("RPUSH", vec!["list_numbers", "3"]),
+        ("RPUSH", vec!["list_numbers", "-1"]),
+        ("RPUSH", vec!["list_numbers", "100000"]),
+        ("RPUSH", vec!["list_numbers", "-9223372036854775808"]),
     ];
 
     let expected_resp = execute_commands(&mut conn, &commands).await;
+    for (cmd, args) in unreported_commands(major_version, minor_version) {
+        redis::cmd(cmd).arg(&args).exec(&mut conn).unwrap();
+    }
     redis::cmd("SAVE").exec(&mut conn).unwrap();
     tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
@@ -214,6 +252,13 @@ async fn test_redis_protocol_reproducibility(#[case] major_version: u8, #[case] 
         split_resp_commands(&actual_resp).into_iter().collect();
 
     assert_eq!(actual_commands, expected_commands);
+}
+
+#[test]
+fn test_unsupported_version_is_an_error() {
+    let input: &[u8] = b"REDIS0014\xff";
+    let err = rdb::parse(input, formatter::Nil::new(None), filter::Simple::new()).unwrap_err();
+    assert!(matches!(err, rdb::RdbError::UnsupportedVersion(14)));
 }
 
 #[rstest]

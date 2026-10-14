@@ -1,16 +1,22 @@
 pub mod version {
     pub const SUPPORTED_MINIMUM: u32 = 1;
-    pub const SUPPORTED_MAXIMUM: u32 = 12;
+    pub const SUPPORTED_MAXIMUM: u32 = 13;
 }
 
 pub mod constant {
     pub const RDB_6BITLEN: u8 = 0;
     pub const RDB_14BITLEN: u8 = 1;
     pub const RDB_ENCVAL: u8 = 3;
+    pub const RDB_32BITLEN: u8 = 0x80;
+    pub const RDB_64BITLEN: u8 = 0x81;
     pub const RDB_MAGIC: &str = "REDIS";
 }
 
 pub mod op_code {
+    pub const KEY_META: u8 = 243;
+    pub const SLOT_INFO: u8 = 244;
+    pub const FUNCTION2: u8 = 245;
+    pub const FUNCTION_PRE_GA: u8 = 246;
     pub const MODULE_AUX: u8 = 247;
     pub const IDLE: u8 = 248;
     pub const FREQ: u8 = 249;
@@ -20,6 +26,17 @@ pub mod op_code {
     pub const EXPIRETIME: u8 = 253;
     pub const SELECTDB: u8 = 254;
     pub const EOF: u8 = 255;
+}
+
+/// Opcodes of the self-describing value stream used by module values,
+/// module aux data and key metadata.
+pub mod module_op_code {
+    pub const EOF: u64 = 0;
+    pub const SINT: u64 = 1;
+    pub const UINT: u64 = 2;
+    pub const FLOAT: u64 = 3;
+    pub const DOUBLE: u64 = 4;
+    pub const STRING: u64 = 5;
 }
 
 pub mod encoding_type {
@@ -44,11 +61,16 @@ pub mod encoding_type {
     pub const STREAM_LIST_PACKS_2: u8 = 19;
     pub const SET_LIST_PACK: u8 = 20;
     pub const STREAM_LIST_PACKS_3: u8 = 21;
+    pub const HASH_METADATA_PRE_GA: u8 = 22;
+    pub const HASH_LIST_PACK_EX_PRE_GA: u8 = 23;
+    pub const HASH_METADATA: u8 = 24;
+    pub const HASH_LIST_PACK_EX: u8 = 25;
+    pub const STREAM_LIST_PACKS_4: u8 = 26;
 }
 
 pub mod encoding {
-    pub const INT8: u32 = 0;
-    pub const INT16: u32 = 1;
-    pub const INT32: u32 = 2;
-    pub const LZF: u32 = 3;
+    pub const INT8: u64 = 0;
+    pub const INT16: u64 = 1;
+    pub const INT32: u64 = 2;
+    pub const LZF: u64 = 3;
 }

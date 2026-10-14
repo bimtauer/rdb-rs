@@ -11,3 +11,5 @@ target/
 
 # Python
 .python-version
+.venv
+__pycache__/

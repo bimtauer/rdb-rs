@@ -8,6 +8,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+ - RDB versions 10-13: Redis 7.0 up to 8.6 ([#8](https://github.com/bimtauer/rdb-rs/issues/8))
+ - Hashes with field TTLs (Redis 7.4+) are decoded; the per-field TTLs are not reported
+ - Streams, module values (e.g. RedisJSON), Lua functions, cluster slot info and key metadata are
+   skipped, so dumps containing them parse
+ - `RdbDecoder::new` is public for iterating over items, with `RdbDecoder::version()`
+ - `RdbValue` is exported from the crate root
+ - Error variants `InvalidHeader`, `UnsupportedVersion` and `Unsupported`
+ - Python: type hints, `RdbDecoder.version`, `pathlib.Path` arguments, abi3 wheels for CPython 3.10+
+   and free-threaded 3.14t wheels
+ - Redis container tests for 8.0, 8.2, 8.4 and 8.6, writing streams, functions and field TTLs
+ - Fixtures from Redis 7.4, Redis 8.6 and redis-stack dumps
+
+### Fixed
+ - Any Redis 7+ dump containing a Lua function failed with `Unknown encoding type: 245`
+ - Streams panicked (`todo!()`)
+ - Negative 13-bit and all 24-bit listpack integers were decoded wrongly (e.g. `-1` as `65535`,
+   `100000` as `390`)
+ - A key's expiry was applied to every following key without one
+ - Key filters (`--type`, `--keys`, `--databases`) failed on several encodings and emitted spurious
+   database switches for skipped keys
+ - 64-bit lengths (`0x81`) were read as 32-bit
+ - Seconds-precision expiry (`EXPIRETIME`, RDB < 3) was read big-endian
+ - Truncated files were reported as complete instead of failing
+ - Invalid UTF-8 values containing `"` or `\` produced invalid JSON
+ - Corrupt input panicked or could trigger huge allocations; it now returns an error
+ - Python: files were read unbuffered (about 10x slower); any open failure raised `FileNotFoundError`
+ - Python: `rdb-py` declared `cffi` and `maturin` as runtime dependencies
+
+### Changed
+ - `RdbParserBuilder::build` returns `RdbResult` instead of panicking
+ - The CLI prints errors to stderr and exits with code 1 instead of panicking
+ - Iteration stops after the first error
+ - Rust edition 2024, minimum Rust version 1.87; pyo3 0.29
+
+### Removed
+ - Unmaintained `rustc-serialize` dependency
+ - Unused `types::EncodingType`
+ - `utils/PKGBUILD` (pointed at the archived repository and a removed Makefile)
+
+## [0.3.0] - 2025-03-29
+
+### Added
  - New RDB version and Datatypes
  - Rust based integration tests
  - Fixtures for protocol and plain output

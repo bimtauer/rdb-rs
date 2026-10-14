@@ -57,7 +57,7 @@ pub fn main() {
         match parse_type(t) {
             Some(typ) => filter.add_type(typ),
             None => {
-                println!("Unknown type: {}\n", t);
+                eprintln!("Unknown type: {}", t);
                 std::process::exit(1);
             }
         }
@@ -68,7 +68,7 @@ pub fn main() {
         match Regex::new(&k) {
             Ok(re) => filter.add_keys(re),
             Err(err) => {
-                println!("Incorrect regexp: {:?}\n", err);
+                eprintln!("Incorrect regexp: {}", err);
                 std::process::exit(1);
             }
         }
@@ -78,7 +78,7 @@ pub fn main() {
     let file = match File::open(&cli.dump_file) {
         Ok(f) => f,
         Err(err) => {
-            println!("Failed to open file: {:?}\n", err);
+            eprintln!("Failed to open {}: {}", cli.dump_file.display(), err);
             std::process::exit(1);
         }
     };
@@ -91,10 +91,13 @@ pub fn main() {
         "nil" => rdb::FormatterType::Nil(rdb::formatter::Nil::new(cli.output)),
         "protocol" => rdb::FormatterType::Protocol(rdb::formatter::Protocol::new(cli.output)),
         f => {
-            println!("Unknown format: {}\n", f);
+            eprintln!("Unknown format: {}", f);
             std::process::exit(1);
         }
     };
 
-    rdb::parse(reader, formatter, filter).expect("Failed to parse RDB file");
+    if let Err(err) = rdb::parse(reader, formatter, filter) {
+        eprintln!("Failed to parse {}: {}", cli.dump_file.display(), err);
+        std::process::exit(1);
+    }
 }
