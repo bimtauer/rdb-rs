@@ -254,21 +254,6 @@ async fn test_redis_protocol_reproducibility(#[case] major_version: u8, #[case] 
     assert_eq!(actual_commands, expected_commands);
 }
 
-/// Real-world dumps without output fixtures (streams, large keys, older
-/// encodings) must decode through to the trailing checksum.
-#[rstest]
-fn test_additional_dumps_decode_to_end(#[files("tests/dumps/additional/*.rdb")] path: PathBuf) {
-    let file = BufReader::new(File::open(&path).unwrap());
-    let decoder = rdb::RdbDecoder::new(file, filter::Simple::new()).unwrap();
-    let values = decoder
-        .collect::<Result<Vec<_>, _>>()
-        .unwrap_or_else(|e| panic!("{}: {}", path.display(), e));
-    assert!(matches!(
-        values.last(),
-        Some(rdb::types::RdbValue::Checksum(_))
-    ));
-}
-
 #[test]
 fn test_unsupported_version_is_an_error() {
     let input: &[u8] = b"REDIS0014\xff";

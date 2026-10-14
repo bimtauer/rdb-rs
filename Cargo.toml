@@ -19,7 +19,11 @@ include = [
   "/CHANGELOG.md",
   "/src/**/*.rs",
   "/tests/*.rs",
-  "/tests/dumps/**/*",
+  "/tests/dumps/*.rdb",
+  "/tests/dumps/README.md",
+  "/tests/dumps/json/*",
+  "/tests/dumps/plain/*",
+  "/tests/dumps/protocol/*",
 ]
 
 [[bin]]
