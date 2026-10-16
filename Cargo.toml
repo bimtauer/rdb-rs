@@ -40,7 +40,8 @@ lzf = "1.0"
 regex = "1.13"
 byteorder = "1.5"
 thiserror = "2.0"
-pyo3 = { version = "0.29", features = ["extension-module", "abi3-py310"], optional = true }
+# maturin sets PYO3_BUILD_EXTENSION_MODULE, so no `extension-module` feature.
+pyo3 = { version = "0.29", features = ["abi3-py311"], optional = true }
 clap = { version = "4.6", features = ["derive"] }
 indexmap = "2.14"
 
