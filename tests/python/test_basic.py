@@ -28,7 +28,11 @@ def test_redis_8_6_dump_accepts_pathlike_and_skips_streams():
     decoder = rdb.RdbDecoder(DUMPS / "redis_8_6_all_types.rdb")
     assert decoder.version == 13
 
-    keys = {item["key"]: item for item in decoder if "key" in item and item["type"] != "aux_field"}
+    keys = {
+        item["key"]: item
+        for item in decoder
+        if "key" in item and item["type"] != "aux_field"
+    }
 
     assert b"stream" not in keys
     assert keys[b"hfe_small"]["values"] == {b"f1": b"v1", b"f2": b"v2", b"f3": b"v3"}
