@@ -177,7 +177,8 @@ impl<R: Read, L: Filter + Default, F: Formatter> RdbParserBuilder<R, L, F> {
 }
 
 impl<R: Read, L: Filter, F: Formatter> RdbParser<R, L, F> {
-    /// Feed all items to the formatter. Stops at the first error.
+    /// Feed all items to the formatter. Stops at the first decoding or
+    /// output error.
     pub fn parse(self) -> RdbResult<()> {
         if let Some(mut formatter) = self.formatter {
             formatter.start_rdb();
@@ -185,6 +186,7 @@ impl<R: Read, L: Filter, F: Formatter> RdbParser<R, L, F> {
                 formatter.format(&value?)?;
             }
             formatter.end_rdb();
+            formatter.flush()?;
         }
         Ok(())
     }

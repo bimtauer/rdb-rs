@@ -261,6 +261,62 @@ fn test_unsupported_version_is_an_error() {
     assert!(matches!(err, rdb::RdbError::UnsupportedVersion(14)));
 }
 
+/// Databases whose keys are all filtered out must not appear as `{}`.
+#[rstest]
+#[case::type_filter(&["--type", "hash"], "[]\n")]
+#[case::db_without_keys(&["--databases", "1"], "[]\n")]
+#[case::one_db_left(&["--databases", "2"], "[{\"key_in_second_database\":\"second\"}]\n")]
+fn test_json_omits_databases_without_matching_keys(#[case] args: &[&str], #[case] expected: &str) {
+    Command::cargo_bin("rdb")
+        .unwrap()
+        .args(args)
+        .arg("tests/dumps/multiple_databases.rdb")
+        .assert()
+        .success()
+        .stdout(expected.to_string());
+}
+
+struct ClosedPipe;
+
+impl std::io::Write for ClosedPipe {
+    fn write(&mut self, _buf: &[u8]) -> std::io::Result<usize> {
+        Err(std::io::ErrorKind::BrokenPipe.into())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Err(std::io::ErrorKind::BrokenPipe.into())
+    }
+}
+
+/// Output errors are returned from `parse` instead of panicking.
+#[rstest]
+#[case::json(formatter::FormatterType::Json(formatter::JSON::from_writer(ClosedPipe)))]
+#[case::plain(formatter::FormatterType::Plain(formatter::Plain::from_writer(ClosedPipe)))]
+#[case::protocol(formatter::FormatterType::Protocol(formatter::Protocol::from_writer(
+    ClosedPipe
+)))]
+fn test_output_errors_are_returned(#[case] formatter: formatter::FormatterType) {
+    let file = BufReader::new(File::open("tests/dumps/redis_8_6_all_types.rdb").unwrap());
+    let err = rdb::parse(file, formatter, filter::Simple::new()).unwrap_err();
+    assert!(matches!(err, rdb::RdbError::Io(e) if e.kind() == std::io::ErrorKind::BrokenPipe));
+}
+
+#[test]
+fn test_cli_unwritable_output_fails() {
+    let output = Command::cargo_bin("rdb")
+        .unwrap()
+        .args([
+            "-o",
+            "/nonexistent-dir/out.json",
+            "tests/dumps/intset_16.rdb",
+        ])
+        .assert()
+        .failure()
+        .stdout("")
+        .get_output()
+        .clone();
+    assert!(String::from_utf8_lossy(&output.stderr).contains("Failed to create"));
+}
+
 #[rstest]
 fn test_cli_commands_succeed(
     #[files("tests/dumps/*.rdb")] path: PathBuf,

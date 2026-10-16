@@ -1,65 +1,77 @@
-#![allow(unused_must_use)]
-use super::write_str;
+use super::Output;
 use crate::formatter::Formatter;
+use crate::types::RdbValue;
 use indexmap::IndexMap;
-use std::io;
-use std::io::Write;
+use std::io::{self, Write};
 use std::path::PathBuf;
 use std::str;
 
+/// Writes a JSON array with one object per database that has matching keys.
 pub struct JSON {
-    out: Box<dyn Write + 'static>,
-    is_first_db: bool,
-    has_databases: bool,
+    out: Output,
+    /// An object for the current database has been opened and not closed.
+    db_open: bool,
+    /// At least one database object has been written.
+    wrote_db: bool,
     is_first_key_in_db: bool,
-    elements_in_key: u32,
     element_index: u32,
 }
 
 impl JSON {
+    /// Write to the file at `file_path`, or stdout if `None`.
+    ///
+    /// Falls back to stdout if the file cannot be created; use
+    /// [`JSON::from_writer`] to handle that error.
     pub fn new(file_path: Option<PathBuf>) -> JSON {
-        let out: Box<dyn Write> = match file_path {
-            Some(path) => match std::fs::File::create(path) {
-                Ok(file) => Box::new(file),
-                Err(_) => Box::new(io::stdout()),
-            },
-            None => Box::new(io::stdout()),
-        };
+        JSON::with_output(Output::from_path(file_path))
+    }
 
+    /// Write to `writer` (buffered internally).
+    pub fn from_writer<W: Write + 'static>(writer: W) -> JSON {
+        JSON::with_output(Output::new(Box::new(writer)))
+    }
+
+    fn with_output(out: Output) -> JSON {
         JSON {
             out,
-            is_first_db: true,
-            has_databases: false,
+            db_open: false,
+            wrote_db: false,
             is_first_key_in_db: true,
-            elements_in_key: 0,
             element_index: 0,
         }
     }
 
-    fn start_key(&mut self, length: u32) {
+    /// Start a key, opening the current database's object on its first key so
+    /// databases without matching keys produce no output.
+    fn start_key(&mut self) {
+        if !self.db_open {
+            if self.wrote_db {
+                self.out.write_str(",");
+            }
+            self.out.write_str("{");
+            self.db_open = true;
+            self.wrote_db = true;
+        }
         if !self.is_first_key_in_db {
-            write_str(&mut self.out, ",");
+            self.out.write_str(",");
         }
 
         self.is_first_key_in_db = false;
-        self.elements_in_key = length;
         self.element_index = 0;
     }
 
-    fn end_key(&mut self) {}
-
     fn write_comma(&mut self) {
         if self.element_index > 0 {
-            write_str(&mut self.out, ",");
+            self.out.write_str(",");
         }
         self.element_index += 1;
     }
 
     fn write_key(&mut self, key: &[u8]) {
-        self.out.write_all(encode_to_ascii(key).as_bytes());
+        self.out.write_str(&encode_to_ascii(key));
     }
     fn write_value(&mut self, value: &[u8]) {
-        self.out.write_all(encode_to_ascii(value).as_bytes());
+        self.out.write_str(&encode_to_ascii(value));
     }
 }
 
@@ -106,83 +118,78 @@ fn push_escaped(out: &mut String, c: char) {
 
 impl Formatter for JSON {
     fn start_rdb(&mut self) {
-        write_str(&mut self.out, "[");
+        self.out.write_str("[");
     }
 
     fn end_rdb(&mut self) {
-        if self.has_databases {
-            write_str(&mut self.out, "}");
+        if self.db_open {
+            self.out.write_str("}");
         }
-        write_str(&mut self.out, "]\n");
+        self.out.write_str("]\n");
     }
 
     fn start_database(&mut self, _db_number: u32) {
-        if !self.is_first_db {
-            write_str(&mut self.out, "},");
+        if self.db_open {
+            self.out.write_str("}");
+            self.db_open = false;
         }
-
-        write_str(&mut self.out, "{");
-        self.is_first_db = false;
-        self.has_databases = true;
         self.is_first_key_in_db = true;
     }
 
     fn string(&mut self, key: &[u8], value: &[u8], _expiry: &Option<u64>) {
-        self.start_key(0);
+        self.start_key();
         self.write_key(key);
-        write_str(&mut self.out, ":");
+        self.out.write_str(":");
         self.write_value(value);
     }
 
     fn hash(&mut self, key: &[u8], values: &IndexMap<Vec<u8>, Vec<u8>>, _expiry: &Option<u64>) {
-        self.start_key(values.len() as u32);
+        self.start_key();
         self.write_key(key);
-        write_str(&mut self.out, ":{");
+        self.out.write_str(":{");
         for (field, value) in values {
             self.write_comma();
             self.write_key(field);
-            write_str(&mut self.out, ":");
+            self.out.write_str(":");
             self.write_value(value);
         }
-        self.end_key();
-        write_str(&mut self.out, "}");
+        self.out.write_str("}");
     }
 
     fn set(&mut self, key: &[u8], values: &[Vec<u8>], _expiry: &Option<u64>) {
-        self.start_key(values.len() as u32);
+        self.start_key();
         self.write_key(key);
-        write_str(&mut self.out, ":[");
+        self.out.write_str(":[");
         for value in values {
             self.write_comma();
             self.write_value(value);
         }
-        self.end_key();
-        write_str(&mut self.out, "]");
+        self.out.write_str("]");
     }
 
     fn list(&mut self, key: &[u8], values: &[Vec<u8>], _expiry: &Option<u64>) {
-        self.start_key(values.len() as u32);
-        self.write_key(key);
-        write_str(&mut self.out, ":[");
-        for value in values {
-            self.write_comma();
-            self.write_value(value);
-        }
-        self.end_key();
-        write_str(&mut self.out, "]");
+        self.set(key, values, _expiry);
     }
 
     fn sorted_set(&mut self, key: &[u8], values: &[(f64, Vec<u8>)], _expiry: &Option<u64>) {
-        self.start_key(values.len() as u32);
+        self.start_key();
         self.write_key(key);
-        write_str(&mut self.out, ":{");
+        self.out.write_str(":{");
         for (score, member) in values {
             self.write_comma();
             self.write_key(member);
-            write_str(&mut self.out, ":");
+            self.out.write_str(":");
             self.write_value(score.to_string().as_bytes());
         }
-        self.end_key();
-        write_str(&mut self.out, "}");
+        self.out.write_str("}");
+    }
+
+    fn format(&mut self, value: &RdbValue) -> io::Result<()> {
+        super::dispatch(self, value);
+        self.out.take_error()
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.out.flush()
     }
 }
