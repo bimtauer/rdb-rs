@@ -1,3 +1,5 @@
+//! `rdb` command line tool: render an RDB file as JSON, plain text or RESP.
+
 use clap::Parser;
 use regex::Regex;
 use std::fs::File;
@@ -43,7 +45,7 @@ fn parse_type(type_str: &str) -> Option<rdb::Type> {
     }
 }
 
-pub fn main() {
+fn main() {
     let cli = Cli::parse();
     let mut filter = rdb::filter::Simple::new();
 

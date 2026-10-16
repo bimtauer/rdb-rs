@@ -110,9 +110,12 @@ use std::io::Read;
 pub use types::{RdbError, RdbOk, RdbResult, RdbValue, Type};
 
 pub mod constants;
+/// Iterating over the items of an RDB file.
 pub mod decoder;
+/// Selecting which keys are decoded.
 pub mod filter;
 pub mod formatter;
+/// Decoded items, errors and data types.
 pub mod types;
 
 pub use decoder::RdbDecoder;
@@ -127,6 +130,7 @@ pub struct RdbParser<R: Read, L: Filter, F: Formatter> {
 }
 
 impl<R: Read, L: Filter, F: Formatter> RdbParser<R, L, F> {
+    /// Start assembling a parser.
     pub fn builder() -> RdbParserBuilder<R, L, F> {
         RdbParserBuilder {
             reader: None,
@@ -160,16 +164,21 @@ impl<R: Read, L: Filter + Default, F: Formatter> RdbParserBuilder<R, L, F> {
         })
     }
 
+    /// Read the RDB file from `reader` (required). Wrap files in a
+    /// [`BufReader`](std::io::BufReader).
     pub fn with_reader(mut self, reader: R) -> Self {
         self.reader = Some(reader);
         self
     }
 
+    /// Decode only keys accepted by `filter`.
     pub fn with_filter(mut self, filter: L) -> Self {
         self.filter = Some(filter);
         self
     }
 
+    /// Render items with `formatter`. Without one, [`RdbParser::parse`] does
+    /// nothing.
     pub fn with_formatter(mut self, formatter: F) -> Self {
         self.formatter = Some(formatter);
         self
@@ -217,6 +226,7 @@ pub struct PyRdbDecoder {
 #[cfg(feature = "python")]
 #[pymethods]
 impl PyRdbDecoder {
+    /// Open `path` and validate the RDB header.
     #[new]
     pub fn new(path: std::path::PathBuf) -> PyResult<Self> {
         // io::Error maps onto the matching OSError subclass

@@ -1,3 +1,5 @@
+//! Output formats for [`parse`](crate::parse) and the `rdb` CLI.
+
 use std::io::{self, BufWriter, Write};
 use std::path::PathBuf;
 
@@ -10,16 +12,22 @@ pub use self::protocol::Protocol;
 
 use super::types::RdbValue;
 
+/// JSON output.
 pub mod json;
+/// No output.
 pub mod nil;
+/// Line-oriented text output.
 pub mod plain;
+/// RESP command output.
 pub mod protocol;
 
+/// Write `data` to `out`, panicking on errors.
 #[deprecated(
     since = "0.4.1",
     note = "panics on write errors; use `Write::write_all` and handle the error"
 )]
 pub fn write_str<W: Write>(out: &mut W, data: &str) {
+    #[allow(clippy::unwrap_used)]
     out.write_all(data.as_bytes()).unwrap();
 }
 
@@ -112,24 +120,37 @@ fn dispatch<F: Formatter + ?Sized>(formatter: &mut F, value: &RdbValue) {
 /// [`RdbValue`] to the matching method; all methods default to no-ops.
 #[allow(unused_variables)]
 pub trait Formatter {
+    /// Before the first item.
     fn start_rdb(&mut self) {}
+    /// After the last item (the checksum).
     fn end_rdb(&mut self) {}
+    /// Trailing checksum; empty for RDB versions before 5.
     fn checksum(&mut self, checksum: &[u8]) {}
 
+    /// Following keys belong to database `db_index`.
     fn start_database(&mut self, db_index: u32) {}
+    /// Never called by [`parse`](crate::parse): RDB files mark only the start
+    /// of a database.
     fn end_database(&mut self, db_index: u32) {}
 
+    /// Size hints for the current database.
     fn resizedb(&mut self, db_size: u32, expires_size: u32) {}
+    /// File metadata such as `redis-ver`.
     fn aux_field(&mut self, key: &[u8], value: &[u8]) {}
 
+    /// A string key. `expiry` is absolute Unix milliseconds.
     fn string(&mut self, key: &[u8], value: &[u8], expiry: &Option<u64>) {}
 
+    /// A hash key.
     fn hash(&mut self, key: &[u8], values: &IndexMap<Vec<u8>, Vec<u8>>, expiry: &Option<u64>) {}
 
+    /// A set key.
     fn set(&mut self, key: &[u8], values: &[Vec<u8>], expiry: &Option<u64>) {}
 
+    /// A list key.
     fn list(&mut self, key: &[u8], values: &[Vec<u8>], expiry: &Option<u64>) {}
 
+    /// A sorted set key with `(score, member)` pairs.
     fn sorted_set(&mut self, key: &[u8], values: &[(f64, Vec<u8>)], expiry: &Option<u64>) {}
 
     /// Render one item. Returns the first output error, which stops parsing.
@@ -145,10 +166,15 @@ pub trait Formatter {
     }
 }
 
+/// One of the built-in formatters, chosen at runtime (used by the CLI).
 pub enum FormatterType {
+    /// See [`JSON`].
     Json(JSON),
+    /// See [`Plain`].
     Plain(Plain),
+    /// See [`Nil`].
     Nil(Nil),
+    /// See [`Protocol`].
     Protocol(Protocol),
 }
 

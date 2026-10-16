@@ -58,3 +58,12 @@ assert_cmd = "2.2"
 [features]
 default = []
 python = ["pyo3"]
+
+[lints.rust]
+unsafe_code = "forbid"
+missing_docs = "warn"
+
+[lints.clippy]
+# Input-driven panics are bugs in a parser; tests may unwrap (clippy.toml).
+unwrap_used = "warn"
+expect_used = "warn"

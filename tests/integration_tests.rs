@@ -1,3 +1,7 @@
+//! Fixture, CLI and Redis container tests.
+// Test helpers may panic: a failure is the test result.
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use assert_cmd::Command;
 use pretty_assertions::assert_eq;
 use rdb::{self, filter, formatter};
