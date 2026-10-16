@@ -204,7 +204,7 @@ async fn test_redis_protocol_reproducibility(#[case] major_version: u8, #[case] 
     let (client, container) = redis_client(major_version, minor_version).await;
     let mut conn = client.get_connection().unwrap();
 
-    let commands = vec![
+    let mut commands = vec![
         ("SET", vec!["string", "bar"]),
         ("HSET", vec!["hash", "name", "John"]),
         ("HSET", vec!["hash", "age", "25"]),
@@ -225,6 +225,18 @@ async fn test_redis_protocol_reproducibility(#[case] major_version: u8, #[case] 
         ("RPUSH", vec!["list_numbers", "100000"]),
         ("RPUSH", vec!["list_numbers", "-9223372036854775808"]),
     ];
+
+    // Past the default compact-encoding limits (128 entries, 512 for hashes
+    // before Redis 7), Redis switches to skiplist (ZSET_2) and hashtable
+    // encodings.
+    let large: Vec<(String, String)> = (0..600)
+        .map(|i| (format!("member{i}"), i.to_string()))
+        .collect();
+    for (member, score) in &large {
+        commands.push(("ZADD", vec!["large_sorted_set", score, member]));
+        commands.push(("HSET", vec!["large_hash", member, score]));
+        commands.push(("SADD", vec!["large_set", member]));
+    }
 
     let expected_resp = execute_commands(&mut conn, &commands).await;
     for (cmd, args) in unreported_commands(major_version, minor_version) {
