@@ -1,3 +1,7 @@
+//! Fixture, CLI and Redis container tests.
+// Test helpers may panic: a failure is the test result.
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use assert_cmd::Command;
 use pretty_assertions::assert_eq;
 use rdb::{self, filter, formatter};
@@ -200,7 +204,7 @@ async fn test_redis_protocol_reproducibility(#[case] major_version: u8, #[case] 
     let (client, container) = redis_client(major_version, minor_version).await;
     let mut conn = client.get_connection().unwrap();
 
-    let commands = vec![
+    let mut commands = vec![
         ("SET", vec!["string", "bar"]),
         ("HSET", vec!["hash", "name", "John"]),
         ("HSET", vec!["hash", "age", "25"]),
@@ -221,6 +225,18 @@ async fn test_redis_protocol_reproducibility(#[case] major_version: u8, #[case] 
         ("RPUSH", vec!["list_numbers", "100000"]),
         ("RPUSH", vec!["list_numbers", "-9223372036854775808"]),
     ];
+
+    // Past the default compact-encoding limits (128 entries, 512 for hashes
+    // before Redis 7), Redis switches to skiplist (ZSET_2) and hashtable
+    // encodings.
+    let large: Vec<(String, String)> = (0..600)
+        .map(|i| (format!("member{i}"), i.to_string()))
+        .collect();
+    for (member, score) in &large {
+        commands.push(("ZADD", vec!["large_sorted_set", score, member]));
+        commands.push(("HSET", vec!["large_hash", member, score]));
+        commands.push(("SADD", vec!["large_set", member]));
+    }
 
     let expected_resp = execute_commands(&mut conn, &commands).await;
     for (cmd, args) in unreported_commands(major_version, minor_version) {
@@ -259,6 +275,71 @@ fn test_unsupported_version_is_an_error() {
     let input: &[u8] = b"REDIS0014\xff";
     let err = rdb::parse(input, formatter::Nil::new(None), filter::Simple::new()).unwrap_err();
     assert!(matches!(err, rdb::RdbError::UnsupportedVersion(14)));
+}
+
+/// Inputs found by fuzzing (fuzz/): decoding must fail with an error, not
+/// panic or allocate the length claimed by the file.
+#[rstest]
+fn test_malformed_dumps_error(#[files("tests/dumps/malformed/*.rdb")] path: PathBuf) {
+    let file = BufReader::new(File::open(&path).unwrap());
+    let result = rdb::parse(file, formatter::Nil::new(None), filter::Simple::new());
+    assert!(result.is_err(), "{} decoded without error", path.display());
+}
+
+/// Databases whose keys are all filtered out must not appear as `{}`.
+#[rstest]
+#[case::type_filter(&["--type", "hash"], "[]\n")]
+#[case::db_without_keys(&["--databases", "1"], "[]\n")]
+#[case::one_db_left(&["--databases", "2"], "[{\"key_in_second_database\":\"second\"}]\n")]
+fn test_json_omits_databases_without_matching_keys(#[case] args: &[&str], #[case] expected: &str) {
+    Command::cargo_bin("rdb")
+        .unwrap()
+        .args(args)
+        .arg("tests/dumps/multiple_databases.rdb")
+        .assert()
+        .success()
+        .stdout(expected.to_string());
+}
+
+struct ClosedPipe;
+
+impl std::io::Write for ClosedPipe {
+    fn write(&mut self, _buf: &[u8]) -> std::io::Result<usize> {
+        Err(std::io::ErrorKind::BrokenPipe.into())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Err(std::io::ErrorKind::BrokenPipe.into())
+    }
+}
+
+/// Output errors are returned from `parse` instead of panicking.
+#[rstest]
+#[case::json(formatter::FormatterType::Json(formatter::JSON::from_writer(ClosedPipe)))]
+#[case::plain(formatter::FormatterType::Plain(formatter::Plain::from_writer(ClosedPipe)))]
+#[case::protocol(formatter::FormatterType::Protocol(formatter::Protocol::from_writer(
+    ClosedPipe
+)))]
+fn test_output_errors_are_returned(#[case] formatter: formatter::FormatterType) {
+    let file = BufReader::new(File::open("tests/dumps/redis_8_6_all_types.rdb").unwrap());
+    let err = rdb::parse(file, formatter, filter::Simple::new()).unwrap_err();
+    assert!(matches!(err, rdb::RdbError::Io(e) if e.kind() == std::io::ErrorKind::BrokenPipe));
+}
+
+#[test]
+fn test_cli_unwritable_output_fails() {
+    let output = Command::cargo_bin("rdb")
+        .unwrap()
+        .args([
+            "-o",
+            "/nonexistent-dir/out.json",
+            "tests/dumps/intset_16.rdb",
+        ])
+        .assert()
+        .failure()
+        .stdout("")
+        .get_output()
+        .clone();
+    assert!(String::from_utf8_lossy(&output.stderr).contains("Failed to create"));
 }
 
 #[rstest]

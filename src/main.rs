@@ -1,7 +1,9 @@
+//! `rdb` command line tool: render an RDB file as JSON, plain text or RESP.
+
 use clap::Parser;
 use regex::Regex;
 use std::fs::File;
-use std::io::BufReader;
+use std::io::{self, BufReader, ErrorKind, Write};
 use std::path::PathBuf;
 
 #[derive(Parser)]
@@ -43,7 +45,7 @@ fn parse_type(type_str: &str) -> Option<rdb::Type> {
     }
 }
 
-pub fn main() {
+fn main() {
     let cli = Cli::parse();
     let mut filter = rdb::filter::Simple::new();
 
@@ -84,20 +86,40 @@ pub fn main() {
     };
     let reader = BufReader::new(file);
 
-    // Parse with the specified formatter
-    let formatter: rdb::FormatterType = match cli.format.as_deref().unwrap_or("json") {
-        "json" => rdb::FormatterType::Json(rdb::formatter::JSON::new(cli.output)),
-        "plain" => rdb::FormatterType::Plain(rdb::formatter::Plain::new(cli.output)),
-        "nil" => rdb::FormatterType::Nil(rdb::formatter::Nil::new(cli.output)),
-        "protocol" => rdb::FormatterType::Protocol(rdb::formatter::Protocol::new(cli.output)),
+    // Open the output ourselves so a bad path is an error, not a silent
+    // fallback to stdout. `nil` writes nothing and creates no file.
+    let format = cli.format.as_deref().unwrap_or("json");
+    let output = || -> Box<dyn Write> {
+        match &cli.output {
+            None => Box::new(io::stdout().lock()),
+            Some(path) => match File::create(path) {
+                Ok(file) => Box::new(file),
+                Err(err) => {
+                    eprintln!("Failed to create {}: {}", path.display(), err);
+                    std::process::exit(1);
+                }
+            },
+        }
+    };
+
+    let formatter: rdb::FormatterType = match format {
+        "json" => rdb::FormatterType::Json(rdb::formatter::JSON::from_writer(output())),
+        "plain" => rdb::FormatterType::Plain(rdb::formatter::Plain::from_writer(output())),
+        "nil" => rdb::FormatterType::Nil(rdb::formatter::Nil),
+        "protocol" => rdb::FormatterType::Protocol(rdb::formatter::Protocol::from_writer(output())),
         f => {
             eprintln!("Unknown format: {}", f);
             std::process::exit(1);
         }
     };
 
-    if let Err(err) = rdb::parse(reader, formatter, filter) {
-        eprintln!("Failed to parse {}: {}", cli.dump_file.display(), err);
-        std::process::exit(1);
+    match rdb::parse(reader, formatter, filter) {
+        Ok(()) => {}
+        // The reader of our output went away (e.g. `rdb dump.rdb | head`).
+        Err(rdb::RdbError::Io(err)) if err.kind() == ErrorKind::BrokenPipe => {}
+        Err(err) => {
+            eprintln!("Failed to parse {}: {}", cli.dump_file.display(), err);
+            std::process::exit(1);
+        }
     }
 }

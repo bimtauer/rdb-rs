@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+ - `JSON`, `Plain` and `Protocol::from_writer` to render into any `io::Write`
+ - Provided method `Formatter::flush`, called by `parse` after `end_rdb`
+ - Python: type stub checked against the extension (stubtest); `RdbDecoder` is marked `@final`
+
+### Fixed
+ - Malformed files could crash or exhaust memory: an LZF string claiming a huge length allocated it
+   up front, and a stream with a huge consumer PEL count overflowed. Both found by fuzzing, now errors
+ - The CLI panicked when its output pipe closed early (`rdb --format plain dump.rdb | head`); it now
+   stops quietly
+ - `-o` with an unwritable path silently wrote to stdout; it now fails with an error
+ - Formatters panicked on write errors; `parse` now returns them
+ - JSON output contained `{}` for databases whose keys were all filtered out, and was invalid for keys
+   before the first database selector
+ - `Nil::new(Some(path))` created or truncated the file
+ - `Formatter::resizedb` was never called
+ - Output files were written unbuffered
+
+### Changed
+ - Python 3.11 or newer is required (3.10 reached end of life)
+ - `formatter::write_str` is deprecated
+
 ## [0.4.0] - 2026-10-14
 
 ### Added

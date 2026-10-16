@@ -84,7 +84,9 @@ fn main() -> Result<(), rdb::RdbError> {
 ```
 
 `rdb::parse(reader, formatter, filter)` renders a dump through one of the built-in formatters or your own
-`Formatter` implementation. API documentation: <https://docs.rs/rdb>.
+`Formatter` implementation; write errors are returned, not panics. API documentation: <https://docs.rs/rdb>.
+
+Requires Rust 1.87 or newer.
 
 ## Python
 
@@ -92,7 +94,7 @@ fn main() -> Result<(), rdb::RdbError> {
 pip install rdb-py
 ```
 
-Wheels are published for Linux, macOS and Windows, for CPython 3.10+ (including free-threaded 3.14t).
+Wheels are published for Linux, macOS and Windows, for CPython 3.11+ (including free-threaded 3.14t).
 
 ```python
 import rdb
@@ -125,15 +127,36 @@ a file that is not a supported RDB file, or malformed data during iteration, rai
 
 ## Development
 
+Running the tests needs Rust 1.88+ (the library itself builds with 1.87), Docker for the Redis container tests
+and [uv](https://docs.astral.sh/uv/) for Python.
+
 ```sh
-cargo test                                   # unit, fixture, CLI and Redis container tests (needs Docker)
+cargo test                                   # unit, fixture, CLI and Redis 6.2-8.6 container tests
 cargo test -- --skip test_redis_protocol     # without Docker
+cargo clippy --all-targets --all-features    # lints configured in Cargo.toml
+cargo deny check                             # advisories, licenses (deny.toml)
 uv sync && uv run pytest                     # Python bindings
+uv run ruff check tests/python rdb.pyi
+uv run python -m mypy.stubtest rdb --allowlist stubtest-allowlist.txt   # rdb.pyi matches the extension
+cargo +nightly fuzz run decode               # fuzz the decoder (cargo install cargo-fuzz)
 ```
 
 `tests/dumps/*.rdb` are compared byte-for-byte against the expected outputs in `tests/dumps/{json,plain,protocol}/`.
 To add a fixture, put the dump there and generate the three outputs with
 `cargo run -- --format <format> -o tests/dumps/<format>/<name>.<format> tests/dumps/<name>.rdb`, then check them by hand.
+Inputs that crashed the decoder go to `tests/dumps/malformed/` and must produce an error.
+
+`Cargo.lock` tracks the newest dependency releases (`.cargo/config.toml`); Dependabot proposes updates weekly.
+
+### Releasing
+
+1. In a PR, bump `version` in `Cargo.toml` (the Python package takes it from there), run `cargo update -p rdb`,
+   and turn `## [Unreleased]` in `CHANGELOG.md` into `## [x.y.z] - YYYY-MM-DD`. CI's semver check fails if the
+   bump is too small for the API changes.
+2. Squash-merge, then tag the merge commit on `master`: `git tag -a vx.y.z -m "rdb x.y.z" && git push origin vx.y.z`.
+3. Approve the two `release` deployments in the Actions tab. Rust CD publishes to crates.io and creates the GitHub
+   Release from the changelog section; Python CD publishes the wheels to PyPI. Both refuse tags that don't match
+   the built version.
 
 The file format is described in [docs/RDB_File_Format.md](docs/RDB_File_Format.md) and its evolution in
 [docs/RDB_Version_History.md](docs/RDB_Version_History.md). Changes are listed in the [changelog](CHANGELOG.md).

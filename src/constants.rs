@@ -1,3 +1,7 @@
+//! Raw values of the RDB format. Names follow the `RDB_*` definitions in
+//! Redis' `src/rdb.h`; see `docs/RDB_File_Format.md` for their meaning.
+#![allow(missing_docs)]
+
 pub mod version {
     pub const SUPPORTED_MINIMUM: u32 = 1;
     pub const SUPPORTED_MAXIMUM: u32 = 13;

@@ -1,0 +1,5 @@
+rules:
+  # Local reusable workflows (`./...`) already run at the caller's commit;
+  # the `$/` syntax is not supported by actionlint yet.
+  self-repository:
+    disable: true
