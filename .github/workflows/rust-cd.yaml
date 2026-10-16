@@ -1,8 +1,8 @@
 name: Rust CD
 
-# Publishes the crate to crates.io via trusted publishing. The crates.io
-# trusted publisher is bound to this file name and the `release` environment
-# (v* tags only, required approval).
+# Publishes the crate to crates.io via trusted publishing, then creates the
+# GitHub Release. The crates.io trusted publisher is bound to this file name
+# and the `release` environment (v* tags only, required approval).
 on:
   push:
     tags:
@@ -28,17 +28,43 @@ jobs:
       id-token: write
     steps:
       - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
       - name: Check tag matches Cargo.toml version
+        env:
+          TAG: ${{ github.ref_name }}
         run: |
           version=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].version')
-          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
-            echo "::error::Tag $GITHUB_REF_NAME does not match Cargo.toml version $version"
+          if [ "v$version" != "$TAG" ]; then
+            echo "::error::Tag $TAG does not match Cargo.toml version $version"
             exit 1
           fi
+      - name: Check CHANGELOG.md has a section for this version
+        env:
+          TAG: ${{ github.ref_name }}
+        run: .github/scripts/release-notes.sh "${TAG#v}" > /dev/null
       - uses: rust-lang/crates-io-auth-action@v1
         id: auth
       - name: cargo publish
         run: cargo publish --locked
         env:
           CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+
+  github-release:
+    name: GitHub Release
+    runs-on: ubuntu-latest
+    needs: publish
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Create release from CHANGELOG.md
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          .github/scripts/release-notes.sh "${TAG#v}" > notes.md
+          gh release create "$TAG" --verify-tag --title "$TAG" --notes-file notes.md
