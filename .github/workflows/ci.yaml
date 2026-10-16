@@ -60,11 +60,18 @@ jobs:
         env:
           RUSTDOCFLAGS: -D warnings
 
+  # Builds the library and CLI the way a Rust 1.87 user gets them: with the
+  # newest dependency versions that still support 1.87 (Cargo.lock tracks
+  # latest, see .cargo/config.toml). Tests need Rust 1.88 (dev-dependencies).
   msrv:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@1.87
       - uses: Swatinem/rust-cache@v2
+      - name: Resolve Rust 1.87 compatible dependencies
+        run: cargo update
+        env:
+          CARGO_RESOLVER_INCOMPATIBLE_RUST_VERSIONS: fallback
       - name: cargo check
-        run: cargo check --locked --lib --bins
+        run: cargo check --lib --bins
