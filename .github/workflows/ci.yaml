@@ -60,6 +60,23 @@ jobs:
         env:
           RUSTDOCFLAGS: -D warnings
 
+  # Security advisories, licenses, duplicate crates, sources (deny.toml).
+  deny:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: EmbarkStudios/cargo-deny-action@v2
+
+  # Public API changes compared to the latest release on crates.io; fails
+  # if the change needs a bigger version bump than Cargo.toml has.
+  semver:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: obi1kenobi/cargo-semver-checks-action@v2
+        with:
+          feature-group: all-features
+
   # Builds the library and CLI the way a Rust 1.87 user gets them: with the
   # newest dependency versions that still support 1.87 (Cargo.lock tracks
   # latest, see .cargo/config.toml). Tests need Rust 1.88 (dev-dependencies).
