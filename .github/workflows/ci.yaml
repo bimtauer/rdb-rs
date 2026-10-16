@@ -33,11 +33,14 @@ jobs:
           - beta
           - nightly
     steps:
-      - uses: actions/checkout@v6
-      - uses: dtolnay/rust-toolchain@master
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
-          toolchain: ${{ matrix.toolchain }}
-      - uses: Swatinem/rust-cache@v2
+          persist-credentials: false
+      - name: Install Rust
+        env:
+          TOOLCHAIN: ${{ matrix.toolchain }}
+        run: rustup toolchain install "$TOOLCHAIN" --profile minimal && rustup default "$TOOLCHAIN"
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       # Includes the Redis container matrix (testcontainers, Docker is
       # available on GitHub-hosted Ubuntu runners).
       - name: cargo test
@@ -46,11 +49,12 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
-          components: rustfmt, clippy
-      - uses: Swatinem/rust-cache@v2
+          persist-credentials: false
+      - name: Install Rust
+        run: rustup toolchain install stable --profile minimal -c rustfmt,clippy && rustup default stable
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - name: Check formatting
         run: cargo fmt --all -- --check
       - name: Clippy
@@ -60,20 +64,36 @@ jobs:
         env:
           RUSTDOCFLAGS: -D warnings
 
+  # GitHub Actions workflows: syntax/shell (actionlint) and security (zizmor).
+  workflows:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - name: actionlint
+        run: docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.12 -color
+      - name: zizmor
+        run: pipx run zizmor==1.31.1 --format github .github
+
   # Security advisories, licenses, duplicate crates, sources (deny.toml).
   deny:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-      - uses: EmbarkStudios/cargo-deny-action@v2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
 
   # Public API changes compared to the latest release on crates.io; fails
   # if the change needs a bigger version bump than Cargo.toml has.
   semver:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-      - uses: obi1kenobi/cargo-semver-checks-action@v2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - uses: obi1kenobi/cargo-semver-checks-action@6b69fcf40e9b5fb17adeb57e4b6ecd020649a239 # v2.9
         with:
           feature-group: all-features
 
@@ -83,9 +103,12 @@ jobs:
   msrv:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-      - uses: dtolnay/rust-toolchain@1.87
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - name: Install Rust 1.87
+        run: rustup toolchain install 1.87 --profile minimal && rustup default 1.87
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - name: Resolve Rust 1.87 compatible dependencies
         run: cargo update
         env:
@@ -98,9 +121,12 @@ jobs:
   fuzz:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-      - uses: dtolnay/rust-toolchain@nightly
-      - uses: taiki-e/install-action@v2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - name: Install Rust nightly
+        run: rustup toolchain install nightly --profile minimal && rustup default nightly
+      - uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2.87.28
         with:
           tool: cargo-fuzz
       - name: Fuzz the decoder for 2 minutes
@@ -110,7 +136,7 @@ jobs:
           cargo fuzz run decode -- -max_total_time=120 -rss_limit_mb=1024 -malloc_limit_mb=512 -max_len=65536
       - name: Upload crashing input
         if: failure()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: fuzz-artifacts
           path: fuzz/artifacts
