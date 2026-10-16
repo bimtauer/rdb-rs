@@ -48,7 +48,8 @@ pub fn skip_stream<R: Read>(input: &mut R, enc_type: u8) -> RdbOk {
                 skip_bytes(input, MS_TIME_SIZE)?; // active time
             }
             let consumer_pel = read_length(input)?;
-            skip_bytes(input, consumer_pel * STREAM_ID_SIZE)?;
+            // Saturate: a corrupt count then fails as a short read.
+            skip_bytes(input, consumer_pel.saturating_mul(STREAM_ID_SIZE))?;
         }
     }
 

@@ -21,6 +21,7 @@ include = [
   "/tests/*.rs",
   "/tests/dumps/*.rdb",
   "/tests/dumps/README.md",
+  "/tests/dumps/malformed/*",
   "/tests/dumps/json/*",
   "/tests/dumps/plain/*",
   "/tests/dumps/protocol/*",

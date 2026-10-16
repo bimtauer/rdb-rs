@@ -92,3 +92,25 @@ jobs:
           CARGO_RESOLVER_INCOMPATIBLE_RUST_VERSIONS: fallback
       - name: cargo check
         run: cargo check --lib --bins
+
+  # Short fuzzing run seeded with the test dumps (see fuzz/). Longer runs:
+  # cargo +nightly fuzz run decode -- -max_total_time=3600
+  fuzz:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@nightly
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-fuzz
+      - name: Fuzz the decoder for 2 minutes
+        run: |
+          mkdir -p fuzz/corpus/decode
+          cp tests/dumps/*.rdb tests/dumps/malformed/*.rdb fuzz/corpus/decode/
+          cargo fuzz run decode -- -max_total_time=120 -rss_limit_mb=1024 -malloc_limit_mb=512 -max_len=65536
+      - name: Upload crashing input
+        if: failure()
+        uses: actions/upload-artifact@v6
+        with:
+          name: fuzz-artifacts
+          path: fuzz/artifacts

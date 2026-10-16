@@ -10,6 +10,10 @@ pub use crate::types::{RdbOk, RdbResult};
 /// file, so a corrupt length cannot trigger a huge allocation up front.
 const MAX_PREALLOC: usize = 4096;
 
+/// Largest possible LZF expansion: a back reference of at most 3 bytes copies
+/// at most 264 bytes.
+const LZF_MAX_RATIO: u64 = 88;
+
 /// `Vec::with_capacity` for an untrusted element count.
 pub fn vec_for<T>(len: u64) -> Vec<T> {
     Vec::with_capacity((len as usize).min(MAX_PREALLOC))
@@ -111,6 +115,17 @@ pub fn read_blob<R: Read>(input: &mut R) -> RdbResult<Vec<u8>> {
         encoding::LZF => {
             let compressed_length = read_length(input)?;
             let real_length = read_length(input)?;
+            // lzf pre-allocates `real_length`, so check it is reachable from
+            // the compressed size before trusting it.
+            if real_length > compressed_length.saturating_mul(LZF_MAX_RATIO) {
+                return Err(RdbError::ParsingError {
+                    context: "read_blob",
+                    message: format!(
+                        "LZF length {} cannot come from {} compressed bytes",
+                        real_length, compressed_length
+                    ),
+                });
+            }
             let data = read_exact(input, compressed_length)?;
             lzf::decompress(&data, real_length as usize).map_err(|e| RdbError::ParsingError {
                 context: "read_blob",
@@ -224,6 +239,15 @@ mod tests {
     #[test]
     fn test_read_blob_truncated_huge_length_errors() {
         let input = vec![0x80, 0xff, 0xff, 0xff, 0xff, 0x61];
+        assert!(read_blob(&mut Cursor::new(input)).is_err());
+    }
+
+    #[test]
+    fn test_read_blob_rejects_impossible_lzf_length() {
+        // LZF blob: 1 compressed byte claiming u64::MAX uncompressed bytes.
+        let mut input = vec![0xC3, 0x01, 0x81];
+        input.extend_from_slice(&u64::MAX.to_be_bytes());
+        input.push(0x00);
         assert!(read_blob(&mut Cursor::new(input)).is_err());
     }
 

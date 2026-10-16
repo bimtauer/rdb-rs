@@ -277,6 +277,15 @@ fn test_unsupported_version_is_an_error() {
     assert!(matches!(err, rdb::RdbError::UnsupportedVersion(14)));
 }
 
+/// Inputs found by fuzzing (fuzz/): decoding must fail with an error, not
+/// panic or allocate the length claimed by the file.
+#[rstest]
+fn test_malformed_dumps_error(#[files("tests/dumps/malformed/*.rdb")] path: PathBuf) {
+    let file = BufReader::new(File::open(&path).unwrap());
+    let result = rdb::parse(file, formatter::Nil::new(None), filter::Simple::new());
+    assert!(result.is_err(), "{} decoded without error", path.display());
+}
+
 /// Databases whose keys are all filtered out must not appear as `{}`.
 #[rstest]
 #[case::type_filter(&["--type", "hash"], "[]\n")]
