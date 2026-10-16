@@ -133,7 +133,9 @@ jobs:
         run: |
           mkdir -p fuzz/corpus/decode
           cp tests/dumps/*.rdb tests/dumps/malformed/*.rdb fuzz/corpus/decode/
-          cargo fuzz run decode -- -max_total_time=120 -rss_limit_mb=1024 -malloc_limit_mb=512 -max_len=65536
+          # The prebuilt cargo-fuzz is a musl binary and would default to the
+          # musl target, where sanitizers are unavailable.
+          cargo fuzz run --target x86_64-unknown-linux-gnu decode -- -max_total_time=120 -rss_limit_mb=1024 -malloc_limit_mb=512 -max_len=65536
       - name: Upload crashing input
         if: failure()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
