@@ -15,7 +15,9 @@ TTLs (Redis 7.4+) are not reported.
 """
 
 from os import PathLike
-from typing import Literal, TypedDict, Union
+from typing import Literal, Self, TypeAlias, TypedDict, final
+
+__all__ = ["RdbDecoder"]
 
 class SelectDb(TypedDict):
     """Following keys belong to database ``db``."""
@@ -74,8 +76,11 @@ class SortedSet(TypedDict):
     """``(score, member)`` pairs."""
     expiry: int | None
 
-Item = Union[SelectDb, ResizeDb, AuxField, Checksum, String, Hash, List, Set, SortedSet]
+Item: TypeAlias = (
+    SelectDb | ResizeDb | AuxField | Checksum | String | Hash | List | Set | SortedSet
+)
 
+@final
 class RdbDecoder:
     """Iterator over the items of an RDB file, in file order.
 
@@ -84,9 +89,9 @@ class RdbDecoder:
     raises ``ValueError`` on malformed data.
     """
 
-    def __init__(self, path: str | PathLike[str]) -> None: ...
+    def __new__(cls, path: str | PathLike[str]) -> Self: ...
     @property
     def version(self) -> int:
         """RDB format version declared in the file header (1-13)."""
-    def __iter__(self) -> RdbDecoder: ...
+    def __iter__(self) -> Self: ...
     def __next__(self) -> Item: ...

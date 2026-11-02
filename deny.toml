@@ -1,0 +1,29 @@
+# cargo-deny: https://embarkstudios.github.io/cargo-deny/
+[graph]
+all-features = true
+
+[advisories]
+# Fail on vulnerabilities and on unmaintained/unsound crates we depend on.
+unmaintained = "workspace"
+yanked = "deny"
+
+[licenses]
+# Permissive licenses compatible with distributing rdb under MIT.
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-3-Clause",
+    "Unicode-3.0",
+    "Unlicense",
+]
+confidence-threshold = 0.9
+
+[bans]
+# Duplicates are mostly dev-dependency noise (testcontainers); report only.
+multiple-versions = "warn"
+wildcards = "deny"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"

@@ -1,147 +1,97 @@
-#![allow(unused_must_use)]
-use indexmap::IndexMap;
-
-use super::write_str;
+use super::Output;
 use crate::formatter::Formatter;
-use std::io;
-use std::io::Write;
+use crate::types::RdbValue;
+use indexmap::IndexMap;
+use std::io::{self, Write};
 use std::path::PathBuf;
 
+/// Writes RESP commands (`SELECT`, `SET`, `HSET`, `SADD`, `RPUSH`, `ZADD`,
+/// `PEXPIREAT`) that recreate the data, e.g. for `redis-cli --pipe`.
 pub struct Protocol {
-    out: Box<dyn Write + 'static>,
-    last_expiry: Option<u64>,
+    out: Output,
 }
 
 impl Protocol {
+    /// Write to the file at `file_path`, or stdout if `None`.
+    ///
+    /// Falls back to stdout if the file cannot be created; use
+    /// [`Protocol::from_writer`] to handle that error.
     pub fn new(file_path: Option<PathBuf>) -> Protocol {
-        let out: Box<dyn Write> = match file_path {
-            Some(path) => match std::fs::File::create(path) {
-                Ok(file) => Box::new(file),
-                Err(_) => Box::new(io::stdout()),
-            },
-            None => Box::new(io::stdout()),
-        };
-
         Protocol {
-            out,
-            last_expiry: None,
-        }
-    }
-}
-
-impl Protocol {
-    fn emit(&mut self, args: Vec<&[u8]>) {
-        write_str(&mut self.out, "*");
-        self.out.write_all(args.len().to_string().as_bytes());
-        write_str(&mut self.out, "\r\n");
-        for arg in &args {
-            write_str(&mut self.out, "$");
-            self.out.write_all(arg.len().to_string().as_bytes());
-            write_str(&mut self.out, "\r\n");
-            self.out.write_all(arg);
-            write_str(&mut self.out, "\r\n");
+            out: Output::from_path(file_path),
         }
     }
 
-    fn pre_expire(&mut self, expiry: &Option<u64>) {
-        self.last_expiry = *expiry;
+    /// Write to `writer` (buffered internally).
+    pub fn from_writer<W: Write + 'static>(writer: W) -> Protocol {
+        Protocol {
+            out: Output::new(Box::new(writer)),
+        }
     }
 
-    fn post_expire(&mut self, key: &[u8]) {
-        if let Some(expire) = self.last_expiry {
+    fn emit(&mut self, args: &[&[u8]]) {
+        self.out.write_str(&format!("*{}\r\n", args.len()));
+        for arg in args {
+            self.out.write_str(&format!("${}\r\n", arg.len()));
+            self.out.write(arg);
+            self.out.write_str("\r\n");
+        }
+    }
+
+    fn expire(&mut self, key: &[u8], expiry: &Option<u64>) {
+        if let Some(expire) = expiry {
             let expire = expire.to_string();
-            self.emit(vec!["PEXPIREAT".as_bytes(), key, expire.as_bytes()]);
-            self.last_expiry = None;
+            self.emit(&[b"PEXPIREAT", key, expire.as_bytes()]);
         }
-    }
-
-    fn set(&mut self, key: &[u8], value: &[u8], expiry: &Option<u64>) {
-        self.pre_expire(expiry);
-        self.emit(vec!["SET".as_bytes(), key, value]);
-        self.post_expire(key);
-    }
-
-    fn start_hash(&mut self, expiry: &Option<u64>) {
-        self.pre_expire(expiry);
-    }
-    fn end_hash(&mut self, key: &[u8]) {
-        self.post_expire(key);
-    }
-    fn hash_element(&mut self, key: &[u8], field: &[u8], value: &[u8]) {
-        self.emit(vec!["HSET".as_bytes(), key, field, value]);
-    }
-
-    fn start_set(&mut self, expiry: &Option<u64>) {
-        self.pre_expire(expiry);
-    }
-    fn end_set(&mut self, key: &[u8]) {
-        self.post_expire(key);
-    }
-    fn set_element(&mut self, key: &[u8], member: &[u8]) {
-        self.emit(vec!["SADD".as_bytes(), key, member]);
-    }
-
-    fn start_list(&mut self, expiry: &Option<u64>) {
-        self.pre_expire(expiry);
-    }
-    fn end_list(&mut self, key: &[u8]) {
-        self.post_expire(key);
-    }
-    fn list_element(&mut self, key: &[u8], value: &[u8]) {
-        self.emit(vec!["RPUSH".as_bytes(), key, value]);
-    }
-
-    fn start_sorted_set(&mut self, expiry: &Option<u64>) {
-        self.pre_expire(expiry);
-    }
-    fn end_sorted_set(&mut self, key: &[u8]) {
-        self.post_expire(key);
-    }
-    fn sorted_set_element(&mut self, key: &[u8], score: f64, member: &[u8]) {
-        let score = score.to_string();
-        self.emit(vec!["ZADD".as_bytes(), key, score.as_bytes(), member]);
     }
 }
 
 impl Formatter for Protocol {
-    fn string(&mut self, key: &[u8], value: &[u8], _expiry: &Option<u64>) {
-        self.set(key, value, _expiry);
+    fn string(&mut self, key: &[u8], value: &[u8], expiry: &Option<u64>) {
+        self.emit(&[b"SET", key, value]);
+        self.expire(key, expiry);
     }
 
     fn hash(&mut self, key: &[u8], values: &IndexMap<Vec<u8>, Vec<u8>>, expiry: &Option<u64>) {
-        self.start_hash(expiry);
         for (field, value) in values {
-            self.hash_element(key, field, value);
+            self.emit(&[b"HSET", key, field, value]);
         }
-        self.end_hash(key);
+        self.expire(key, expiry);
     }
 
     fn set(&mut self, key: &[u8], values: &[Vec<u8>], expiry: &Option<u64>) {
-        self.start_set(expiry);
-        for value in values {
-            self.set_element(key, value);
+        for member in values {
+            self.emit(&[b"SADD", key, member]);
         }
-        self.end_set(key);
+        self.expire(key, expiry);
     }
 
     fn list(&mut self, key: &[u8], values: &[Vec<u8>], expiry: &Option<u64>) {
-        self.start_list(expiry);
         for value in values {
-            self.list_element(key, value);
+            self.emit(&[b"RPUSH", key, value]);
         }
-        self.end_list(key);
+        self.expire(key, expiry);
     }
 
     fn sorted_set(&mut self, key: &[u8], values: &[(f64, Vec<u8>)], expiry: &Option<u64>) {
-        self.start_sorted_set(expiry);
         for (score, member) in values {
-            self.sorted_set_element(key, *score, member);
+            let score = score.to_string();
+            self.emit(&[b"ZADD", key, score.as_bytes(), member]);
         }
-        self.end_sorted_set(key);
+        self.expire(key, expiry);
     }
 
     fn start_database(&mut self, db_number: u32) {
         let db = db_number.to_string();
-        self.emit(vec!["SELECT".as_bytes(), db.as_bytes()])
+        self.emit(&[b"SELECT", db.as_bytes()]);
+    }
+
+    fn format(&mut self, value: &RdbValue) -> io::Result<()> {
+        super::dispatch(self, value);
+        self.out.take_error()
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.out.flush()
     }
 }

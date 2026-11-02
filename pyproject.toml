@@ -1,6 +1,7 @@
 [project]
 name = "rdb-py"
-version = "0.4.0"
+# Taken from Cargo.toml by maturin.
+dynamic = ["version"]
 description = "Fast Redis RDB dump file parser, powered by Rust"
 readme = "README.md"
 license = "MIT"
@@ -10,7 +11,7 @@ authors = [
     { name = "Jan-Erik Rediger", email = "badboy@fnordig.de" },
 ]
 keywords = ["redis", "rdb", "parser", "dump"]
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 dependencies = []
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -32,7 +33,9 @@ Changelog = "https://github.com/bimtauer/rdb-rs/blob/master/CHANGELOG.md"
 [dependency-groups]
 dev = [
     "maturin>=1.9,<2",
+    "mypy>=2.4.0",
     "pytest>=8",
+    "ruff>=0.17.1",
 ]
 
 [build-system]

@@ -1,23 +1,14 @@
 use crate::formatter::Formatter;
 use crate::types::RdbValue;
-use std::io;
-use std::io::Write;
 use std::path::PathBuf;
 
-pub struct Nil {
-    _out: Box<dyn Write>,
-}
+/// Produces no output; useful to validate a file.
+pub struct Nil;
 
 impl Nil {
-    pub fn new(file_path: Option<PathBuf>) -> Nil {
-        let _out: Box<dyn Write> = match file_path {
-            Some(path) => match std::fs::File::create(path) {
-                Ok(file) => Box::new(file),
-                Err(_) => Box::new(io::stdout()),
-            },
-            None => Box::new(io::stdout()),
-        };
-        Nil { _out }
+    /// `file_path` is ignored: no file is created or truncated.
+    pub fn new(_file_path: Option<PathBuf>) -> Nil {
+        Nil
     }
 }
 

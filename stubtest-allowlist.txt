@@ -1,0 +1,5 @@
+# Typing-only names in rdb.pyi: item shapes exist for type checkers, the
+# runtime returns plain dicts.
+rdb\.(SelectDb|ResizeDb|AuxField|Checksum|String|Hash|List|Set|SortedSet|Item)
+# Native extension module behind the package; rdb.pyi describes the package.
+rdb\.rdb

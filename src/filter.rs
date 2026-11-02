@@ -4,13 +4,16 @@ use regex::Regex;
 /// Decides which keys are decoded. Keys that do not match are skipped
 /// without decoding their value. All methods default to accepting everything.
 pub trait Filter {
+    /// Whether keys in database `db` are decoded.
     fn matches_db(&self, _db: u32) -> bool {
         true
     }
-    /// `enc_type` is the on-disk value type byte; see [`Type::from_encoding`].
+    /// Whether keys of this value type are decoded. `enc_type` is the on-disk
+    /// value type byte; see [`Type::from_encoding`].
     fn matches_type(&self, _enc_type: u8) -> bool {
         true
     }
+    /// Whether the key named `key` is decoded.
     fn matches_key(&self, _key: &[u8]) -> bool {
         true
     }
@@ -26,6 +29,7 @@ pub struct Simple {
 }
 
 impl Simple {
+    /// A filter that accepts everything until criteria are added.
     pub fn new() -> Simple {
         Simple::default()
     }

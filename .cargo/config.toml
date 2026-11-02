@@ -1,0 +1,6 @@
+[resolver]
+# Keep Cargo.lock on the newest releases (what CI tests and Dependabot
+# updates). Without this, edition 2024's resolver prefers versions compatible
+# with `rust-version` and downgrades the lockfile on `cargo update`. The MSRV
+# CI job resolves a Rust 1.87 compatible set separately.
+incompatible-rust-versions = "allow"

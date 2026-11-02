@@ -15,6 +15,7 @@ pub enum RdbError {
     /// Reading from the underlying reader failed, including unexpected end of input.
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
+    /// A required value was missing (also used for internal invariants).
     #[error("No value found after {0}")]
     MissingValue(&'static str),
     /// A value type byte this crate does not know.
@@ -32,21 +33,31 @@ pub enum RdbError {
     /// The data is malformed.
     #[error("Parsing error in {context}: {message}")]
     ParsingError {
+        /// Decoder function that detected the problem.
         context: &'static str,
+        /// What was wrong.
         message: String,
     },
 }
+
+/// Result type of this crate.
 pub type RdbResult<T> = Result<T, RdbError>;
 
+/// [`RdbResult`] without a value.
 pub type RdbOk = RdbResult<()>;
 
 /// Logical Redis data type, independent of its on-disk encoding.
 #[derive(Debug, PartialEq)]
 pub enum Type {
+    /// Plain string (`SET`).
     String,
+    /// List (`RPUSH`).
     List,
+    /// Set (`SADD`).
     Set,
+    /// Sorted set (`ZADD`).
     SortedSet,
+    /// Hash (`HSET`), with or without field TTLs.
     Hash,
     /// Walked but not decoded.
     Stream,
@@ -97,37 +108,66 @@ pub enum RdbValue {
     /// Following keys belong to this database.
     SelectDb(u32),
     /// Size hints for the current database.
-    ResizeDb { db_size: u32, expires_size: u32 },
+    ResizeDb {
+        /// Number of keys.
+        db_size: u32,
+        /// Number of keys with an expiry.
+        expires_size: u32,
+    },
     /// Metadata such as `redis-ver` or `ctime`.
-    AuxField { key: Vec<u8>, value: Vec<u8> },
+    AuxField {
+        /// Field name.
+        key: Vec<u8>,
+        /// Field value.
+        value: Vec<u8>,
+    },
     /// Trailing CRC64 checksum (8 bytes, little-endian; empty before RDB 5).
     /// Always the last item.
     Checksum(Vec<u8>),
+    /// String key.
     String {
+        /// Key name.
         key: Vec<u8>,
+        /// Value; integer-encoded strings are rendered in decimal.
         value: Vec<u8>,
+        /// Absolute expiry in Unix milliseconds.
         expiry: Option<u64>,
     },
-    /// Fields in file order. Per-field TTLs (Redis 7.4+) are not included.
+    /// Hash key. Fields in file order; per-field TTLs (Redis 7.4+) are not
+    /// included.
     Hash {
+        /// Key name.
         key: Vec<u8>,
+        /// Field to value.
         values: IndexMap<Vec<u8>, Vec<u8>>,
+        /// Absolute expiry in Unix milliseconds.
         expiry: Option<u64>,
     },
+    /// Set key.
     Set {
+        /// Key name.
         key: Vec<u8>,
+        /// Members in file order.
         members: Vec<Vec<u8>>,
+        /// Absolute expiry in Unix milliseconds.
         expiry: Option<u64>,
     },
+    /// List key.
     List {
+        /// Key name.
         key: Vec<u8>,
+        /// Elements from head to tail.
         values: Vec<Vec<u8>>,
+        /// Absolute expiry in Unix milliseconds.
         expiry: Option<u64>,
     },
+    /// Sorted set key.
     SortedSet {
+        /// Key name.
         key: Vec<u8>,
-        /// `(score, member)` pairs.
+        /// `(score, member)` pairs in file order.
         values: Vec<(f64, Vec<u8>)>,
+        /// Absolute expiry in Unix milliseconds.
         expiry: Option<u64>,
     },
 }
